@@ -1,0 +1,54 @@
+/*
+ * tokens.css — Hitori design tokens.
+ *
+ * Every value here is copied verbatim from the design brief. Locked in Step 1 so every
+ * later step (board UI, splash, skyline, win flow) references one source of truth.
+ *
+ * Sodium is a TWO-STOP ramp: --sodium-light on night backgrounds, --sodium-dark on the
+ * cream lit cells. One stop cannot serve both. Full-strength sodium marks player intent
+ * only — it never touches a digit or a skyline window. The violation rose is reserved
+ * for rule violations and must never be used decoratively.
+ */
+
+:root {
+  /* --- palette --- */
+  --night:              #16192B; /* background */
+  --lit:                #EFE3CA; /* lit cell (lamplight) */
+  --lit-digit:          #2A2318; /* digit on a lit cell (12.2:1) */
+  --shaded:             #0D0F1A; /* shaded cell (gone dark) */
+  --shaded-digit:       #6B7291; /* digit on a shaded cell (4.04:1), cool blue-grey */
+  --sodium-light:       #E8935B; /* on night = 7.25:1 — buttons, tier names, HUD accent */
+  --sodium-dark:        #A35A2E; /* on cream = 4.07:1 — circled mark, marks on lit cells */
+  --violation:          #C4695E; /* rule violations ONLY — never decorative */
+
+  /* skyline bands, far -> near (distant is LIGHTER: atmospheric perspective) */
+  --band-far:           #1E2238;
+  --band-mid:           #191C2E;
+  --band-near:          #101322;
+
+  /* splash-only: shaded letter in the cold-start logo (5.69:1) — NOT the board's dim */
+  --splash-shaded-digit: #838BAD;
+
+  /* secondary button hairline outline */
+  --outline:            #3A3F58;
+
+  /* --- spacing scale (4 / 8 / 16 / 24 / 32) --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+
+  /* --- typography (IBM Plex Mono; 300 secondary, 400 digits/timer, 500 tiers/buttons) --- */
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  /* --- motion (contemplative, not snappy) --- */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-default: all 0.22s var(--ease);
+
+  /* --- depth: "lamplight on paper at night" --- */
+  --shadow-lit:    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+                   0 2px 6px rgba(0, 0, 0, 0.35),
+                   0 0 14px rgba(232, 147, 91, 0.10);
+  --shadow-shaded: inset 0 2px 5px rgba(0, 0, 0, 0.75);
+}

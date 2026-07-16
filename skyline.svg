@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 200" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+  <!--
+    Hitori background — apartment block at dusk.
+    Bands are flat fills; atmospheric perspective does the depth (far band is
+    LIGHTER than near, because there is more night air between you and it).
+    Never add gradients here: they band badly on OLED.
+
+    Sky is the page background (#16192B) showing through — no sky rect.
+
+    Windows all carry class="win" and are ordered far -> near in document
+    order. Script picks them off in reverse (nearest first) as the player
+    shades cells. Each window's lit opacity lives in data-lit so a fade can
+    return to exactly the right value on undo.
+  -->
+
+  <circle cx="292" cy="34" r="15" fill="#EFE3CA" opacity="0.16"/>
+
+  <g id="band-far" fill="#1E2238">
+    <rect x="0" y="86" width="38" height="114"/>
+    <rect x="42" y="74" width="26" height="126"/>
+    <rect x="72" y="94" width="44" height="106"/>
+    <rect x="120" y="80" width="30" height="120"/>
+    <rect x="154" y="90" width="52" height="110"/>
+    <rect x="210" y="76" width="28" height="124"/>
+    <rect x="242" y="96" width="40" height="104"/>
+    <rect x="286" y="82" width="34" height="118"/>
+    <rect x="324" y="92" width="36" height="108"/>
+  </g>
+  <g id="win-far" fill="#E8935B">
+    <rect class="win" data-lit="0.30" x="8"   y="94"  width="3" height="4" opacity="0.30"/>
+    <rect class="win" data-lit="0.20" x="26"  y="102" width="3" height="4" opacity="0.20"/>
+    <rect class="win" data-lit="0.35" x="50"  y="84"  width="3" height="4" opacity="0.35"/>
+    <rect class="win" data-lit="0.25" x="128" y="90"  width="3" height="4" opacity="0.25"/>
+    <rect class="win" data-lit="0.30" x="168" y="100" width="3" height="4" opacity="0.30"/>
+    <rect class="win" data-lit="0.20" x="218" y="86"  width="3" height="4" opacity="0.20"/>
+    <rect class="win" data-lit="0.28" x="296" y="92"  width="3" height="4" opacity="0.28"/>
+    <rect class="win" data-lit="0.22" x="334" y="102" width="3" height="4" opacity="0.22"/>
+  </g>
+
+  <g id="band-mid" fill="#191C2E">
+    <rect x="10" y="118" width="44" height="82"/>
+    <rect x="58" y="130" width="32" height="70"/>
+    <rect x="94" y="112" width="50" height="88"/>
+    <rect x="148" y="126" width="36" height="74"/>
+    <rect x="188" y="116" width="46" height="84"/>
+    <rect x="238" y="132" width="30" height="68"/>
+    <rect x="272" y="120" width="48" height="80"/>
+    <rect x="324" y="128" width="36" height="72"/>
+  </g>
+  <g id="win-mid" fill="#E8935B">
+    <rect class="win" data-lit="0.50" x="18"  y="126" width="4" height="5" opacity="0.50"/>
+    <rect class="win" data-lit="0.15" x="32"  y="126" width="4" height="5" opacity="0.15"/>
+    <rect class="win" data-lit="0.15" x="18"  y="140" width="4" height="5" opacity="0.15"/>
+    <rect class="win" data-lit="0.45" x="32"  y="140" width="4" height="5" opacity="0.45"/>
+    <rect class="win" data-lit="0.40" x="66"  y="138" width="4" height="5" opacity="0.40"/>
+    <rect class="win" data-lit="0.20" x="78"  y="152" width="4" height="5" opacity="0.20"/>
+    <rect class="win" data-lit="0.55" x="102" y="120" width="4" height="5" opacity="0.55"/>
+    <rect class="win" data-lit="0.20" x="116" y="120" width="4" height="5" opacity="0.20"/>
+    <rect class="win" data-lit="0.45" x="130" y="134" width="4" height="5" opacity="0.45"/>
+    <rect class="win" data-lit="0.18" x="102" y="148" width="4" height="5" opacity="0.18"/>
+    <rect class="win" data-lit="0.50" x="156" y="134" width="4" height="5" opacity="0.50"/>
+    <rect class="win" data-lit="0.22" x="170" y="148" width="4" height="5" opacity="0.22"/>
+    <rect class="win" data-lit="0.35" x="196" y="124" width="4" height="5" opacity="0.35"/>
+    <rect class="win" data-lit="0.50" x="212" y="124" width="4" height="5" opacity="0.50"/>
+    <rect class="win" data-lit="0.18" x="196" y="140" width="4" height="5" opacity="0.18"/>
+    <rect class="win" data-lit="0.42" x="222" y="140" width="4" height="5" opacity="0.42"/>
+    <rect class="win" data-lit="0.30" x="246" y="140" width="4" height="5" opacity="0.30"/>
+    <rect class="win" data-lit="0.50" x="280" y="128" width="4" height="5" opacity="0.50"/>
+    <rect class="win" data-lit="0.20" x="296" y="128" width="4" height="5" opacity="0.20"/>
+    <rect class="win" data-lit="0.25" x="280" y="144" width="4" height="5" opacity="0.25"/>
+    <rect class="win" data-lit="0.45" x="308" y="144" width="4" height="5" opacity="0.45"/>
+    <rect class="win" data-lit="0.30" x="332" y="136" width="4" height="5" opacity="0.30"/>
+  </g>
+
+  <g id="band-near" fill="#101322">
+    <rect x="0" y="156" width="56" height="44"/>
+    <rect x="60" y="148" width="40" height="52"/>
+    <rect x="104" y="160" width="60" height="40"/>
+    <rect x="168" y="152" width="44" height="48"/>
+    <rect x="216" y="162" width="52" height="38"/>
+    <rect x="272" y="150" width="38" height="50"/>
+    <rect x="314" y="158" width="46" height="42"/>
+  </g>
+  <g id="win-near" fill="#E8935B">
+    <rect class="win" data-lit="0.60" x="10"  y="166" width="5" height="6" opacity="0.60"/>
+    <rect class="win" data-lit="0.20" x="26"  y="166" width="5" height="6" opacity="0.20"/>
+    <rect class="win" data-lit="0.50" x="42"  y="166" width="5" height="6" opacity="0.50"/>
+    <rect class="win" data-lit="0.25" x="10"  y="182" width="5" height="6" opacity="0.25"/>
+    <rect class="win" data-lit="0.55" x="42"  y="182" width="5" height="6" opacity="0.55"/>
+    <rect class="win" data-lit="0.45" x="70"  y="158" width="5" height="6" opacity="0.45"/>
+    <rect class="win" data-lit="0.65" x="86"  y="158" width="5" height="6" opacity="0.65"/>
+    <rect class="win" data-lit="0.20" x="70"  y="176" width="5" height="6" opacity="0.20"/>
+    <rect class="win" data-lit="0.50" x="114" y="170" width="5" height="6" opacity="0.50"/>
+    <rect class="win" data-lit="0.22" x="132" y="170" width="5" height="6" opacity="0.22"/>
+    <rect class="win" data-lit="0.60" x="150" y="170" width="5" height="6" opacity="0.60"/>
+    <rect class="win" data-lit="0.30" x="114" y="186" width="5" height="6" opacity="0.30"/>
+    <rect class="win" data-lit="0.55" x="178" y="162" width="5" height="6" opacity="0.55"/>
+    <rect class="win" data-lit="0.25" x="196" y="162" width="5" height="6" opacity="0.25"/>
+    <rect class="win" data-lit="0.40" x="178" y="180" width="5" height="6" opacity="0.40"/>
+    <rect class="win" data-lit="0.50" x="226" y="172" width="5" height="6" opacity="0.50"/>
+    <rect class="win" data-lit="0.20" x="246" y="172" width="5" height="6" opacity="0.20"/>
+    <rect class="win" data-lit="0.35" x="226" y="188" width="5" height="6" opacity="0.35"/>
+    <rect class="win" data-lit="0.60" x="282" y="160" width="5" height="6" opacity="0.60"/>
+    <rect class="win" data-lit="0.28" x="296" y="160" width="5" height="6" opacity="0.28"/>
+    <rect class="win" data-lit="0.22" x="282" y="178" width="5" height="6" opacity="0.22"/>
+    <rect class="win" data-lit="0.50" x="324" y="168" width="5" height="6" opacity="0.50"/>
+    <rect class="win" data-lit="0.30" x="342" y="168" width="5" height="6" opacity="0.30"/>
+    <rect class="win" data-lit="0.55" x="324" y="186" width="5" height="6" opacity="0.55"/>
+  </g>
+</svg>
