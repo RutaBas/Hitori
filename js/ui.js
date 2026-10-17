@@ -62,6 +62,8 @@
     dailyMonth: null,     // { y, m } the Daily calendar shows (null = this month)
     dailyResult: null,    // the last daily win: { stars, ms, onTime, prevBest, streak, best }
     statsTab: null,       // the Stats tab to open on ("daily" from the Daily screen); Task 14
+    homeRenderedFor: null,  // the local day Home's Daily card was rendered for
+    dailyRenderedFor: null, // the local day the Daily screen was rendered for (see refreshIfNewDay)
     winTimers: [],        // star-reveal timeouts on the level win card
     winOrder: [],         // skyline windows, nearest-first (city-goes-to-sleep order)
     darkCount: 0,         // how many windows are currently darkened
@@ -256,6 +258,7 @@
   function renderHome() {
     var list = document.getElementById("home-list");
     var html = "";
+    App.homeRenderedFor = dateKey(new Date());
 
     // 1. Continue — only when a resumable save exists.
     var save = loadSave();
@@ -569,6 +572,7 @@
   function renderDaily() {
     var today = dateKey(new Date()), rec = dailyRecords();
     var now = parseKey(today), epoch = parseKey(DAILY_EPOCH);
+    App.dailyRenderedFor = today;
     if (!App.dailyMonth) App.dailyMonth = { y: now.getFullYear(), m: now.getMonth() };
     // Keep the shown month inside [epoch month, this month].
     var shown = App.dailyMonth.y * 12 + App.dailyMonth.m;
@@ -627,6 +631,25 @@
     document.getElementById("daily-body").innerHTML = html;
   }
 
+  /**
+   * The local day changed since Home or the Daily screen was drawn: redraw the active one,
+   * so neither offers yesterday as "today". Returns true when the Daily screen was redrawn.
+   * Called when the page becomes visible again and before any Daily screen tap.
+   */
+  function refreshIfNewDay() {
+    var today = dateKey(new Date());
+    var home = document.getElementById("screen-home"), daily = document.getElementById("screen-daily");
+    if (home.classList.contains("screen--active") && App.homeRenderedFor && App.homeRenderedFor !== today) renderHome();
+    if (daily.classList.contains("screen--active") && App.dailyRenderedFor && App.dailyRenderedFor !== today) {
+      // Showing the month that was "this month"? Follow today into the new one.
+      var was = parseKey(App.dailyRenderedFor);
+      if (App.dailyMonth && App.dailyMonth.y === was.getFullYear() && App.dailyMonth.m === was.getMonth()) App.dailyMonth = null;
+      renderDaily();
+      return true;
+    }
+    return false;
+  }
+
   function stepDailyMonth(delta) {
     var d = new Date(App.dailyMonth.y, App.dailyMonth.m + delta, 1);
     App.dailyMonth = { y: d.getFullYear(), m: d.getMonth() };
@@ -634,6 +657,8 @@
   }
 
   function onDailyClick(ev) {
+    // Left open past midnight: "today" and the cells are yesterday's. Redraw, start nothing.
+    if (refreshIfNewDay()) return;
     var day = ev.target.closest("[data-day]");
     if (day && !day.disabled) { startDaily(day.getAttribute("data-day")); return; }
     var cal = ev.target.closest("[data-cal]");
@@ -653,7 +678,8 @@
     var tier = dailyTier(key), N = TIERS[tier].size;
     var c = readJSON(LS.dailyCache, null);
     if (c && c.key === key && Array.isArray(c.numbers) && Array.isArray(c.solution) &&
-        c.numbers.length === N * N && c.solution.length === N * N) {
+        c.numbers.length === N * N && c.solution.length === N * N &&
+        c.solution.every(function (v) { return v === 0 || v === 1; })) {
       return { tier: tier, N: N, numbers: c.numbers, solution: c.solution };
     }
     var p = dailyPuzzle(key);
@@ -1655,7 +1681,10 @@
     window.addEventListener("resize", sizeBoard);
     // Auto-pause (and save) when the app is hidden or closed mid-game.
     window.addEventListener("pagehide", pauseIfPlaying);
-    document.addEventListener("visibilitychange", function () { if (document.hidden) pauseIfPlaying(); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) pauseIfPlaying(); else refreshIfNewDay();
+    });
+    window.addEventListener("pageshow", refreshIfNewDay);   // back from the bfcache
 
     // PWA service worker (cache-first app shell).
     if ("serviceWorker" in navigator) {
