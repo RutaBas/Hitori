@@ -61,7 +61,8 @@
     levelResult: null,    // the last level win: { stars, ms, best, prevBest, isLast }
     dailyMonth: null,     // { y, m } the Daily calendar shows (null = this month)
     dailyResult: null,    // the last daily win: { stars, ms, onTime, prevBest, streak, best }
-    statsTab: null,       // the Stats tab to open on ("daily" from the Daily screen); Task 14
+    statsTab: null,       // the Stats tab last shown this session ("all" | "free" | "daily" | "levels")
+    statsRenderedFor: null, // the local day the Stats screen was rendered for (see refreshIfNewDay)
     homeRenderedFor: null,  // the local day Home's Daily card was rendered for
     dailyRenderedFor: null, // the local day the Daily screen was rendered for (see refreshIfNewDay)
     winTimers: [],        // star-reveal timeouts on the level win card
@@ -77,6 +78,15 @@
     try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
   }
   function writeJSON(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+  /** A stored map, or {} when it is missing or not a plain object (never throws on odd data). */
+  function objOf(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+  /** The map's entries that are objects (a damaged entry is skipped, not deleted). */
+  function cleanMap(m) {
+    var out = {};
+    Object.keys(objOf(m)).forEach(function (k) { if (m[k] && typeof m[k] === "object") out[k] = m[k]; });
+    return out;
+  }
+  function activityLog() { return cleanMap(readJSON(LS.activity, {})); }
 
   function loadSettings() {
     return Object.assign({ violations: false, sound: true, haptics: true, dark: true }, readJSON(LS.settings, {}));
@@ -180,32 +190,47 @@
   /** The resumable save in the current shape (old saves migrated), or null. */
   function loadSave() { return migrateSave(readJSON(LS.save, null)); }
 
-  // Free-play records (hitori.stats). Levels and dailies never touch them.
-  function blankStats() { return { played: 0, won: 0, bestMs: 0, sumMs: 0, currentStreak: 0, bestStreak: 0 }; }
-  function statsFor(t) { var s = readJSON(LS.stats, {}); return s[t] || blankStats(); }
+  // Free-play records (hitori.stats). Levels and dailies never touch them. Always read
+  // through migrateFreeStats (stats.js), so pre-update records gain hintsUsed and keep
+  // every other field.
+  function blankStats() { return { played: 0, won: 0, bestMs: 0, sumMs: 0, currentStreak: 0, bestStreak: 0, hintsUsed: 0 }; }
+  function readFreeStats() { return migrateFreeStats(objOf(readJSON(LS.stats, {}))); }
+  function statsFor(t) { var e = readFreeStats()[t]; return e && typeof e === "object" ? e : blankStats(); }
+  function freeEntry(s, t) {
+    if (!s[t] || typeof s[t] !== "object") s[t] = blankStats();
+    return s[t];
+  }
   /** Starting a new game over an unsolved free-play save abandons it: that tier's streak breaks. */
   function recordAbandon(prev) {
     if (!prev || prev.mode !== "free") return;
-    var s = readJSON(LS.stats, {});
-    var e = s[prev.tier] || (s[prev.tier] = blankStats());
-    e.currentStreak = 0;
+    var s = readFreeStats();
+    freeEntry(s, prev.tier).currentStreak = 0;
     writeJSON(LS.stats, s);
   }
   function recordStart(t) {
-    var s = readJSON(LS.stats, {});
-    var e = s[t] || (s[t] = blankStats());
-    e.played++;
+    var s = readFreeStats();
+    var e = freeEntry(s, t);
+    e.played = (e.played || 0) + 1;
     writeJSON(LS.stats, s);
   }
+  /** A free-play Hint press: the tier's hintsUsed total (abandoned games' hints count too). */
+  function recordFreeHint(t) {
+    var s = readFreeStats();
+    var e = freeEntry(s, t);
+    e.hintsUsed = (e.hintsUsed || 0) + 1;
+    writeJSON(LS.stats, s);
+  }
+  /** Free-play win: the tier's record plus a solve (and its hints) in the activity log. */
   function recordWin() {
-    var s = readJSON(LS.stats, {});
-    var e = s[App.tier] || (s[App.tier] = blankStats());
+    var s = readFreeStats();
+    var e = freeEntry(s, App.tier);
     var ms = currentMs();
-    e.won++; e.sumMs += ms;
+    e.won = (e.won || 0) + 1; e.sumMs = (e.sumMs || 0) + ms;
     if (!e.bestMs || ms < e.bestMs) e.bestMs = ms;
     e.currentStreak = (e.currentStreak || 0) + 1;
-    if (e.currentStreak > e.bestStreak) e.bestStreak = e.currentStreak;
+    if (e.currentStreak > (e.bestStreak || 0)) e.bestStreak = e.currentStreak;
     writeJSON(LS.stats, s);
+    writeJSON(LS.activity, recordActivity(objOf(readJSON(LS.activity, {})), dateKey(new Date()), "free", App.hintsUsed));
   }
 
   // ---- screens (crossfade; skyline stays) + the generic overlay -------------
@@ -227,7 +252,7 @@
     document.getElementById("overlay").classList.remove("is-visible");
   }
 
-  /** Stand-in screen for parts built in later tasks (Stats, How to play). */
+  /** Stand-in screen for parts built in later tasks (How to play). */
   function showSoon(title) {
     $(".soon-title").textContent = title;
     hideOverlay();
@@ -640,6 +665,8 @@
     var today = dateKey(new Date());
     var home = document.getElementById("screen-home"), daily = document.getElementById("screen-daily");
     if (home.classList.contains("screen--active") && App.homeRenderedFor && App.homeRenderedFor !== today) renderHome();
+    var stats = document.getElementById("screen-stats");
+    if (stats.classList.contains("screen--active") && App.statsRenderedFor && App.statsRenderedFor !== today) renderStats();
     if (daily.classList.contains("screen--active") && App.dailyRenderedFor && App.dailyRenderedFor !== today) {
       // Showing the month that was "this month"? Follow today into the new one.
       var was = parseKey(App.dailyRenderedFor);
@@ -666,11 +693,251 @@
     if (ev.target.closest('[data-nav="daily-stats"]')) openStats("daily");
   }
 
-  /** Stats screen, opened on a tab ("daily" from the Daily screen). Task 14 builds the
-   *  screen; until then this is the placeholder. App.statsTab carries the requested tab. */
+  // ==========================================================================
+  // STATS (spec §1 "Stats screen", §5): tabs All · Free · Daily · Levels
+  // ==========================================================================
+  // Everything is derived on the fly from hitori.stats (free play, via migrateFreeStats),
+  // hitori.levels, hitori.daily and hitori.activity; nothing here writes storage.
+  var STATS_TABS = ["all", "free", "daily", "levels"];
+
+  /** "—" for a missing time (never "NaN" or "0:00"); a sub-second solve reads 0:01. */
+  function fmtOrDash(ms) { return typeof ms === "number" && ms > 0 ? fmtTime(Math.max(1000, ms)) : "—"; }
+  function dashOr(cond, txt) { return cond ? txt : "—"; }
+
+  /** The four stores, each made safe to read (damaged entries are skipped, never deleted). */
+  function statsSources() {
+    var lvRaw = objOf(readJSON(LS.levels, {})), levels = {};
+    Object.keys(lvRaw).forEach(function (t) { levels[t] = cleanMap(lvRaw[t]); });
+    var free = cleanMap(readFreeStats());
+    var dRaw = cleanMap(dailyRecords()), daily = {};
+    Object.keys(dRaw).forEach(function (k) { if (/^\d{4}-\d{2}-\d{2}$/.test(k)) daily[k] = dRaw[k]; });
+    return { freeStats: free, levels: levels, daily: daily, activity: activityLog() };
+  }
+  function daySolves(d) { return d ? (d.free || 0) + (d.level || 0) + (d.daily || 0) : 0; }
+
+  /**
+   * Open the Stats screen. `tab` picks one ("daily" from the Daily screen); without one it
+   * opens on the tab used last this session (App.statsTab), or All.
+   */
   function openStats(tab) {
-    App.statsTab = tab || null;
-    showSoon("Stats");
+    if (tab) App.statsTab = tab;
+    if (STATS_TABS.indexOf(App.statsTab) < 0) App.statsTab = "all";
+    hideOverlay();
+    renderStats();
+    showScreen("stats");
+    document.getElementById("screen-stats").scrollTop = 0;
+  }
+
+  function renderStats() {
+    var tab = App.statsTab, today = dateKey(new Date()), src = statsSources();
+    App.statsRenderedFor = today;
+    var btns = document.querySelectorAll("#stats-tabs .st-tab");
+    for (var k = 0; k < btns.length; k++) {
+      var on = btns[k].getAttribute("data-tab") === tab;
+      btns[k].classList.toggle("is-on", on);
+      btns[k].setAttribute("aria-selected", on ? "true" : "false");
+    }
+    var html = tab === "free" ? statsFreeHtml(src)
+      : tab === "daily" ? statsDailyHtml(src, today)
+      : tab === "levels" ? statsLevelsHtml(src)
+      : statsAllHtml(src, today);
+    var body = document.getElementById("stats-body");
+    body.innerHTML = html;
+    body.setAttribute("aria-labelledby", "st-tab-" + tab);
+  }
+
+  function onStatsClick(ev) {
+    var t = ev.target.closest(".st-tab[data-tab]");
+    if (t) {
+      App.statsTab = t.getAttribute("data-tab");
+      renderStats();
+      document.getElementById("screen-stats").scrollTop = 0;
+      return;
+    }
+    var nav = ev.target.closest("[data-stnav]");
+    if (!nav) return;
+    var to = nav.getAttribute("data-stnav");
+    if (to === "daily") openDaily();
+    else if (to === "levels") showLevels();
+  }
+
+  // ---- shared pieces ----
+  function stHero(n, label, sub) {
+    return '<div class="st-hero"><span class="st-flame" aria-hidden="true">🔥</span><div>' +
+      '<div class="st-hero-main"><span class="st-big">' + n + "</span> " + label + "</div>" +
+      '<div class="st-hero-sub">' + sub + "</div></div></div>";
+  }
+  /** Stat tiles: [[value, label], ...]. */
+  function stTiles(list) {
+    var html = '<div class="st-tiles st-tiles--' + list.length + '">';
+    list.forEach(function (p) { html += "<div><b>" + p[0] + "</b><span>" + p[1] + "</span></div>"; });
+    return html + "</div>";
+  }
+  function stLabel(txt) { return '<div class="section-label">' + txt + "</div>"; }
+  function stTierCell(t) {
+    return "<td>" + tierName(t) + '<span class="st-size">' + sizeLabel(TIERS[t].size) + "</span></td>";
+  }
+  function td(v) { return "<td" + (v === "—" ? ' class="st-dash"' : "") + ">" + v + "</td>"; }
+  /** A 12-week grid; cells = [{ key, cls }] column-major (a column per week, Monday first). */
+  function stGrid(cells, aria, legend) {
+    var html = '<div class="st-card"><div class="st-grid" role="img" aria-label="' + aria + '">';
+    cells.forEach(function (c) { html += '<i class="sg-' + c.cls + '" title="' + fmtDay(c.key) + '"></i>'; });
+    html += '</div><div class="st-axis" aria-hidden="true"><span>12 weeks ago</span><span>this week</span></div>' +
+      '<div class="cal-legend st-legend">';
+    legend.forEach(function (l) { html += '<span><i class="lg sg-' + l[0] + '" aria-hidden="true"></i>' + l[1] + "</span>"; });
+    return html + "</div></div>";
+  }
+
+  // ---- All: every mode together ----
+  function statsAllHtml(src, today) {
+    var a = allStats(src, today), log = src.activity;
+    var started = 0, logSolves = 0, active = 0;
+    Object.keys(log).forEach(function (k) {
+      started += log[k].started || 0;
+      logSolves += daySolves(log[k]);
+      if (daySolves(log[k]) > 0) active++;
+    });
+    var cur = a.streak.current, solvedToday = daySolves(log[today]) > 0;
+    var nudge = solvedToday ? "today counts ✓" : cur ? "solve any puzzle today to make it " + (cur + 1)
+      : "solve any puzzle to start one";
+    var html = stHero(cur, "day streak", "best " + a.streak.best + " · any puzzle counts · " + nudge);
+    html += stTiles([
+      [a.solved, "solved"],
+      [dashOr(a.solved || started, a.finishedPct + "%"), "finished"],
+      [a.perfect, "★★★"],
+      [dashOr(logSolves, String(a.hintsPerGame)), "hints / game"],
+    ]);
+
+    html += stLabel("Last 12 weeks");
+    html += stGrid(a.grid.map(function (c) { return { key: c.key, cls: c.key > today ? "future" : c.status }; }),
+      "Puzzles solved over the last 12 weeks: " + active + " active day" + (active === 1 ? "" : "s") + " in all",
+      [["daily", "daily"], ["other", "levels / free"], ["none", "none"]]);
+
+    html += stLabel("By tier · all modes");
+    html += '<div class="st-card"><table class="st-table"><thead><tr><th></th><th>solved</th><th>best</th><th>avg</th></tr></thead><tbody>';
+    a.byTier.forEach(function (b) {
+      html += "<tr>" + stTierCell(b.tier) + td(b.solved) + td(fmtOrDash(b.bestMs)) + td(fmtOrDash(b.avgMs)) + "</tr>";
+    });
+    html += "</tbody></table>" +
+      '<p class="st-note">Free play averages every win; levels and dailies count their best time.</p></div>';
+
+    html += stLabel("Techniques mastered");
+    html += '<div class="st-card st-tech">';
+    masteredTechniques(src.levels).forEach(function (m) {
+      var uses = [];
+      for (var t = 1; t <= 6; t++) if (TIERS[t].technique === m.tier) uses.push(tierName(t));
+      var done = Math.min(m.done, m.need);
+      html += '<div class="st-tech-row' + (m.mastered ? " is-mastered" : "") + '">' +
+        '<span class="st-tech-name">' + m.name + "</span>" +
+        '<span class="st-tech-val">' + (m.mastered ? "mastered ✓" : done + " / " + m.need) + "</span>" +
+        '<span class="lv-bar2 st-tech-bar" aria-hidden="true"><span style="width:' +
+        (done ? Math.max(4, Math.round((100 * done) / m.need)) : 0) + '%"></span></span>' +
+        '<span class="st-tech-uses">' + uses.join(" · ") + " levels</span></div>";
+    });
+    html += '<p class="st-note">A technique is mastered after ' + STATS_MASTERY_NEED +
+      " level solves that need it, with no hints.</p></div>";
+    return html;
+  }
+
+  // ---- Free: the per-tier records (hitori.stats) ----
+  function statsFreeHtml(src) {
+    var fs = src.freeStats, played = 0, won = 0, hints = 0;
+    for (var t = 1; t <= 6; t++) {
+      var f = fs[t];
+      if (!f) continue;
+      played += f.played || 0; won += f.won || 0; hints += f.hintsUsed || 0;
+    }
+    var html = stTiles([
+      [played, "played"],
+      [won, "won"],
+      [dashOr(played, Math.round((100 * won) / played) + "%"), "win rate"],
+      [hints, "hints used"],
+    ]);
+    html += stLabel("By tier");
+    html += '<div class="st-card"><table class="st-table st-table--free"><thead><tr><th></th>' +
+      "<th>played</th><th>won</th><th>best</th><th>avg</th><th>streak</th></tr></thead><tbody>";
+    for (var ft = 1; ft <= 6; ft++) {
+      var e = fs[ft] || {}, w = e.won || 0;
+      html += "<tr>" + stTierCell(ft) + td(e.played || 0) + td(w) + td(fmtOrDash(e.bestMs)) +
+        td(w ? fmtOrDash(Math.round((e.sumMs || 0) / w)) : "—") +
+        "<td>" + (e.currentStreak || 0) + '<span class="st-size">best ' + (e.bestStreak || 0) + "</span></td></tr>";
+    }
+    html += "</tbody></table>" +
+      '<p class="st-note">Streak: wins in a row on that tier. Leaving a puzzle unfinished for a new one ends it.</p></div>';
+    return html;
+  }
+
+  // ---- Daily: like TicTacLogic's daily stats ----
+  function statsDailyHtml(src, today) {
+    var rec = src.daily, st = dailyStats(rec, today);
+    var nudge = rec[today] ? "today’s done · see you tomorrow"
+      : st.current ? "solve today to make it " + (st.current + 1) : "solve today to start a streak";
+    var html = stHero(st.current, "day streak", "best " + st.best + " · " + nudge);
+    html += stTiles([
+      [st.solved, "solved"],
+      [dashOr(st.solved, st.onTimePct + "%"), "on the day"],
+      [st.perfect, "perfect ★★★"],
+    ]);
+
+    var cells = activityGrid(rec, today, 12);
+    var shown = cells.filter(function (c) { return c.status === "on" || c.status === "late"; }).length;
+    html += stLabel("Last 12 weeks");
+    html += stGrid(cells.map(function (c) { return { key: c.key, cls: c.status }; }),
+      "Dailies over the last 12 weeks: " + shown + " solved",
+      [["on", "on the day"], ["late", "later"], ["missed", "missed"]]);
+
+    html += stLabel("By board size");
+    html += '<div class="st-card"><table class="st-table"><thead><tr><th></th><th>solved</th><th>best</th><th>avg</th></tr></thead><tbody>';
+    DAILY_TIERS.forEach(function (t) {
+      var b = st.bySize[t];
+      html += "<tr>" + stTierCell(t) + td(b.solved) + td(fmtOrDash(b.bestMs)) + td(fmtOrDash(b.avgMs)) + "</tr>";
+    });
+    html += "</tbody></table></div>";
+
+    var max = Math.max(1, st.stars[1] || 0, st.stars[2] || 0, st.stars[3] || 0);
+    html += stLabel("Stars") + '<div class="st-card">';
+    [3, 2, 1].forEach(function (k) {
+      var n = st.stars[k] || 0;
+      html += '<div class="st-starrow"><span class="st-stars" aria-label="' + k + ' stars">' + starText(k) + "</span>" +
+        '<span class="lv-bar2 st-starbar" aria-hidden="true"><span style="width:' + Math.round((100 * n) / max) + '%"></span></span>' +
+        '<span class="st-count">' + n + "</span></div>";
+    });
+    html += "</div>";
+
+    html += stLabel("Streak milestones") + '<div class="st-miles">';
+    streakMilestones(st.current, st.best).forEach(function (m) {
+      html += '<div class="st-mile' + (m.done ? " is-done" : "") + '"><b>' + m.days + "</b><span>" +
+        (m.done ? "days ✓" : m.toGo != null ? m.toGo + " to go" : "days") + "</span></div>";
+    });
+    html += "</div>";
+    html += '<button class="daily-stats-link st-link" data-stnav="daily">Daily calendar →</button>';
+    return html;
+  }
+
+  // ---- Levels: per tier solved, stars, star spread, best time ----
+  function statsLevelsHtml(src) {
+    var total = 0, solved = 0, stars = 0, maxStars = 0, perfect = 0, rows = "";
+    for (var t = 1; t <= 6; t++) {
+      var count = levelCount(t), s = tierSummary(src.levels[t], count);
+      total += count; solved += s.solved; stars += s.stars; maxStars += s.maxStars; perfect += s.starCounts[3];
+      rows += '<div class="st-lv">' +
+        '<div class="st-lv-top"><span class="lv-card-name">' + tierName(t) + '</span><span class="lv-card-size">' +
+        sizeLabel(TIERS[t].size) + "</span></div>" +
+        '<div class="st-lv-main"><span>' + s.solved + " / " + count + ' solved</span><span>★ ' + s.stars + " / " + s.maxStars + "</span></div>" +
+        '<span class="lv-bar2" aria-hidden="true"><span style="width:' + barPct(s.solved, count) + '%"></span></span>' +
+        '<div class="st-lv-sub"><span>' +
+        [3, 2, 1].map(function (k) { return '<span class="st-lv-spread" aria-label="' + k + " stars: " + s.starCounts[k] + '">' +
+          '<span class="st-stars" aria-hidden="true">' + starText(k) + "</span> " + s.starCounts[k] + "</span>"; }).join("") +
+        "</span><span>best " + fmtOrDash(s.bestMs) + "</span></div></div>";
+    }
+    var html = stTiles([
+      [solved + '<small> / ' + total + "</small>", "solved"],
+      [stars + '<small> / ' + maxStars + "</small>", "stars"],
+      [perfect, "★★★"],
+    ]);
+    html += stLabel("By tier") + '<div class="st-lvs">' + rows + "</div>";
+    html += '<button class="daily-stats-link st-link" data-stnav="levels">Open Levels →</button>';
+    return html;
   }
 
   /** The day's puzzle: from hitori.dailyCache when it holds that day, else generated (and cached). */
@@ -822,9 +1089,9 @@
     if (!resume) {
       recordAbandon(loadSave());              // overwriting an unsolved free game breaks its streak
       if (cfg.mode === "free") recordStart(cfg.tier);
-      if (cfg.mode === "level" || cfg.mode === "daily") {
-        writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), dateKey(new Date()), cfg.mode, 0, { started: true }));
-      }
+      // Every new attempt, whatever its mode, is one "started" in the activity log (the
+      // All tab's % finished); a resumed save was already counted when it began.
+      writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), dateKey(new Date()), cfg.mode, 0, { started: true }));
     }
     clearWinTimers();
     clearHint();
@@ -1229,6 +1496,7 @@
     if (App.won || App.paused || !App.board) return;
     if (App.hint && App.hint.walk) return;           // the walk-through has its own controls
     App.hintsUsed++;                                 // every press counts (stars)
+    if (App.mode === "free") recordFreeHint(App.tier); // hitori.stats hintsUsed (Stats → Free)
     var H = App.hint;
     if (!H) {
       var h = nextHint(App.board.state, App.board.numbers, App.N, App.solution, App.lastTap);
@@ -1667,6 +1935,10 @@
     // Daily screen: today's button, calendar days and paging, the Stats link (delegated).
     $(".daily-back").addEventListener("click", goHome);
     document.getElementById("daily-body").addEventListener("click", onDailyClick);
+
+    // Stats screen: the tabs and the links at the foot of a tab (delegated).
+    $(".stats-back").addEventListener("click", goHome);
+    document.getElementById("screen-stats").addEventListener("click", onStatsClick);
 
     // Levels overview, a tier's grid, its pinned Play button.
     $(".levels-back").addEventListener("click", goHome);

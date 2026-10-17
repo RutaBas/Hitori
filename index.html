@@ -186,7 +186,26 @@
       </div>
     </section>
 
-    <!-- PLACEHOLDER for screens that later tasks build (Stats, How to play). -->
+    <!-- STATS: tabs All · Free · Daily · Levels over every mode's records (renderStats).
+         The last tab used is remembered for the session (App.statsTab). -->
+    <section id="screen-stats" class="screen screen--scroll">
+      <div class="page-inner">
+        <header class="screen-head">
+          <button class="back-link stats-back">‹ Home</button>
+          <h1 class="screen-title">Stats</h1>
+          <span class="screen-head-end" aria-hidden="true"></span>
+        </header>
+        <div class="st-tabs" id="stats-tabs" role="tablist" aria-label="Stats">
+          <button class="st-tab" role="tab" id="st-tab-all" data-tab="all" aria-controls="stats-body">All</button>
+          <button class="st-tab" role="tab" id="st-tab-free" data-tab="free" aria-controls="stats-body">Free</button>
+          <button class="st-tab" role="tab" id="st-tab-daily" data-tab="daily" aria-controls="stats-body">Daily</button>
+          <button class="st-tab" role="tab" id="st-tab-levels" data-tab="levels" aria-controls="stats-body">Levels</button>
+        </div>
+        <div id="stats-body" class="stats-body" role="tabpanel"></div>
+      </div>
+    </section>
+
+    <!-- PLACEHOLDER for screens that later tasks build (How to play). -->
     <section id="screen-soon" class="screen">
       <header class="topbar">
         <button class="back-link soon-back">‹ Home</button>

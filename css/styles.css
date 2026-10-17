@@ -521,6 +521,127 @@ button.cal-cell:active:not(:disabled) { transform: scale(0.95); }
   .cal-grid { gap: 3px; }
 }
 
+/* ============================ STATS ==================================== */
+/* Tabs All · Free · Daily · Levels, then the tab's content (renderStats). */
+.st-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-1); margin-bottom: var(--space-3); }
+.st-tab {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lit);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition-default);
+}
+.st-tab.is-on { background: var(--sodium-light); border-color: var(--sodium-light); color: var(--night); font-weight: 500; }
+.stats-body { display: flex; flex-direction: column; gap: var(--space-2); padding-bottom: var(--space-4); }
+.stats-body .section-label { margin: var(--space-2) 2px 0; }
+
+.st-hero { display: flex; align-items: center; gap: 12px; padding: 12px var(--space-3); border-radius: 12px; background: var(--band-far); }
+.st-flame { flex: 0 0 auto; font-size: 26px; line-height: 1; }
+.st-hero-main { font-weight: 400; font-size: 14px; }
+.st-big { font-weight: 500; font-size: 30px; line-height: 1; color: var(--sodium-light); font-variant-numeric: tabular-nums; }
+.st-hero-sub { margin-top: 3px; font-weight: 300; font-size: 11px; line-height: 1.4; color: var(--muted); }
+
+.st-tiles { display: grid; gap: 6px; }
+.st-tiles--3 { grid-template-columns: repeat(3, 1fr); }
+.st-tiles--4 { grid-template-columns: repeat(4, 1fr); }
+.st-tiles > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 2px;
+  border-radius: 10px;
+  background: var(--band-far);
+  text-align: center;
+}
+.st-tiles b { font-weight: 500; font-size: 18px; color: var(--sodium-light); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.st-tiles small { font-weight: 300; font-size: 11px; color: var(--muted); }
+.st-tiles span { margin-top: 2px; font-weight: 300; font-size: 10.5px; line-height: 1.3; color: var(--muted); }
+
+.st-card { padding: 10px 12px; border-radius: 12px; background: var(--band-mid); }
+.st-note { margin-top: var(--space-2); font-weight: 300; font-size: 11px; line-height: 1.5; color: var(--muted); }
+
+/* 12-week grid: a column per week (Monday on top), today's week on the right. */
+.st-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: repeat(7, auto);
+  grid-auto-flow: column;
+  gap: 3px;
+}
+.st-grid i { display: block; aspect-ratio: 1 / 1; border-radius: 3px; }
+.sg-daily, .sg-on { background: var(--lit); }
+.sg-other { background: var(--sodium-light); }
+.sg-late { background: var(--band-far); border: 1px dashed var(--sodium-light); }
+.sg-none, .sg-missed { background: var(--outline); opacity: 0.6; }
+/* days still to come, or before the daily existed: a faint outline keeps the grid's shape */
+.sg-future, .sg-before { background: transparent; border: 1px solid var(--outline); opacity: 0.35; }
+.st-axis { display: flex; justify-content: space-between; margin-top: 4px; font-weight: 300; font-size: 10px; color: var(--muted); }
+.st-legend { margin-top: var(--space-2); }
+.st-legend .lg { width: 12px; height: 12px; }
+
+.st-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.st-table th { padding: 0 4px 6px; font-weight: 300; font-size: 10.5px; text-align: right; color: var(--muted); }
+.st-table td { padding: 6px 4px; font-weight: 400; text-align: right; vertical-align: top; border-top: 1px solid var(--band-far); white-space: nowrap; }
+.st-table th:first-child, .st-table td:first-child { padding-left: 0; text-align: left; }
+.st-table th:last-child, .st-table td:last-child { padding-right: 0; }
+.st-table td:first-child { font-weight: 500; color: var(--lit); }
+.st-table td.st-dash { color: var(--muted); }
+.st-size { display: block; font-weight: 300; font-size: 10px; color: var(--muted); }
+
+.st-tech { display: flex; flex-direction: column; gap: 12px; }
+.st-tech-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: var(--space-2); }
+.st-tech-name { font-weight: 500; font-size: 13px; }
+.st-tech-val { font-weight: 400; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.st-tech-row.is-mastered .st-tech-val { color: var(--sodium-light); }
+.st-tech-bar, .st-tech-uses { grid-column: 1 / -1; }
+.st-tech-uses { margin-top: 3px; font-weight: 300; font-size: 11px; color: var(--muted); }
+.st-tech .st-note { margin-top: 0; }
+
+.st-starrow { display: grid; grid-template-columns: auto 1fr 2.5em; align-items: center; gap: 10px; padding: 3px 0; }
+.st-stars { color: var(--sodium-light); letter-spacing: -0.04em; }
+.st-starbar { margin-top: 0; }
+.st-count { text-align: right; font-weight: 400; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.st-miles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.st-mile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 2px;
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  background: var(--band-mid);
+  color: var(--muted);
+}
+.st-mile b { font-weight: 500; font-size: 17px; font-variant-numeric: tabular-nums; }
+.st-mile span { font-weight: 300; font-size: 10.5px; }
+.st-mile.is-done { border-color: var(--sodium-light); background: var(--band-far); color: var(--lit); }
+.st-mile.is-done b { color: var(--sodium-light); }
+
+.st-lvs { display: flex; flex-direction: column; gap: var(--space-2); }
+.st-lv { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 12px; border-radius: 10px; background: var(--band-far); }
+.st-lv-top, .st-lv-main, .st-lv-sub { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.st-lv-main { font-weight: 400; font-size: 13px; font-variant-numeric: tabular-nums; }
+.st-lv-sub { margin-top: 4px; font-weight: 300; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.st-lv-spread { margin-right: 10px; white-space: nowrap; }
+.st-lv-spread:last-child { margin-right: 0; }
+.st-link { margin-top: var(--space-1); }
+@media (max-width: 360px) {
+  .st-card { padding-left: var(--space-2); padding-right: var(--space-2); }
+  .st-tab { font-size: 12px; }
+  .st-table { font-size: 11px; }
+  .st-table th, .st-table td { padding-left: 3px; padding-right: 3px; }
+  .st-lv-spread { margin-right: 6px; }
+}
+
 /* ============================ TIER LIST ================================= */
 .tier-list { display: flex; flex-direction: column; gap: 6px; }
 .tier {
