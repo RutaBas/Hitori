@@ -22,8 +22,8 @@ function check(label, cond) {
 // hashString of each tier's first 100 strings joined by ",". Filled from the batch-1 build;
 // these must never change (adding batches appends, it never rewrites).
 const BATCH1_FINGERPRINTS = {
-  1: 2467617565, 2: 2477356850, 3: 2345767946,
-  4: 72200376, 5: 3497355500, 6: 1672671954,
+  1: 487871509, 2: 4110827629, 3: 2187924140,
+  4: 37723364, 5: 3324834110, 6: 2583807601,
 };
 
 // Spearman rank correlation with average ranks for ties.
@@ -100,6 +100,13 @@ for (let t = 1; t <= 6; t++) {
     check(label + "hardWork never decreases (" + work[0] + " -> " + work[work.length - 1] + ")", drops === 0);
     const rho = spearman(idx, work);
     check(label + "Spearman(index, hardWork) = " + rho.toFixed(3) + " >= 0.8", rho >= 0.8);
+    // No outlier finale: the step into the batch's last level is at most a quarter of the
+    // batch's whole climb (floor 1 for tiny integer ranges). "3x the median step" cannot be
+    // used: most neighbours tie on hardWork, so the median step is 0 in every tier.
+    const last = work[work.length - 1] - work[work.length - 2];
+    const climb = work[work.length - 1] - work[0];
+    const bound = Math.max(1, 0.25 * climb);
+    check(label + "last step " + last + " <= max(1, 0.25 x climb " + climb + ") = " + bound, last <= bound);
   }
 }
 

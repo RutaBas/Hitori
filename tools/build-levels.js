@@ -13,8 +13,10 @@
  * Per tier, per new batch b: candidate c is seeded by
  *   mulberry32(hashString("level-" + tier + "-batch-" + b + "-cand-" + c))
  * and kept if it is unique, needs exactly TIERS[tier].technique, and is new. 400 kept
- * candidates are sorted by scorePuzzle (hardWork asc, opening desc, string asc) and 100
- * are taken evenly spaced. Fully deterministic: two runs write identical files.
+ * candidates are sorted by scorePuzzle (hardWork asc, opening desc, string asc), the
+ * hardest TRIM_FRACTION (2%, i.e. the last 8 of 400) are dropped so level 100 is not an
+ * extreme outlier, and 100 are taken evenly spaced from the remaining 392
+ * (index round(k * 391 / 99)). Fully deterministic: two runs write identical files.
  */
 const fs = require("fs");
 const path = require("path");
@@ -23,6 +25,8 @@ const S = require("../js/solver.js");
 const P = require("../js/progress.js");
 
 const POOL = 400;
+const TRIM_FRACTION = 0.02; // hardest share of the sorted pool dropped before selection
+const KEPT = POOL - Math.round(POOL * TRIM_FRACTION); // 392
 const MAX_CANDIDATES = 20000;
 const OUT = path.join(__dirname, "..", "js", "levels.js");
 const TIER_FNS_LOCAL = [null, S.applyT1, S.applyT2, S.applyT3, S.applyT4, S.applyT5, S.applyT6];
@@ -96,7 +100,7 @@ function buildBatch(tier, batch, existing) {
   }
   pool.sort(byScore);
   const picks = [];
-  for (let k = 0; k < per; k++) picks.push(pool[Math.round(k * (POOL - 1) / (per - 1))]);
+  for (let k = 0; k < per; k++) picks.push(pool[Math.round(k * (KEPT - 1) / (per - 1))]);
   console.log("  tier " + tier + " (" + cfg.name + " " + cfg.size + "x" + cfg.size + ") batch " + batch +
     ": " + pool.length + " candidates from " + c + " tries, hardWork " + picks[0].hardWork +
     " -> " + picks[per - 1].hardWork);
@@ -193,4 +197,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2));
 
-module.exports = { scorePuzzle, buildBatch, render };
+module.exports = { scorePuzzle, buildBatch, render, TRIM_FRACTION };
