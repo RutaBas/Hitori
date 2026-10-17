@@ -26,7 +26,8 @@
     stats: "hitori.stats",
     save: "hitori.saveState",
     levels: "hitori.levels",
-    daily: "hitori.daily",
+    daily: "hitori.daily",         // { "YYYY-MM-DD": { stars, bestMs, onTime } } (daily.js recordDaily)
+    dailyCache: "hitori.dailyCache", // { key, numbers, solution }: the last daily built, so a replay skips the generator
     tutorialDone: "hitori.tutorialDone",
     techSeen: "hitori.techSeen",   // { "<technique 3|4|6>": true } once its intro card was read
     activity: "hitori.activity",   // per-day log (stats.js recordActivity)
@@ -58,6 +59,9 @@
     levelTier: null,      // the tier whose level grid is open / was last open
     pendingLevel: null,   // { t, n } waiting behind the technique intro card
     levelResult: null,    // the last level win: { stars, ms, best, prevBest, isLast }
+    dailyMonth: null,     // { y, m } the Daily calendar shows (null = this month)
+    dailyResult: null,    // the last daily win: { stars, ms, onTime, prevBest, streak, best }
+    statsTab: null,       // the Stats tab to open on ("daily" from the Daily screen); Task 14
     winTimers: [],        // star-reveal timeouts on the level win card
     winOrder: [],         // skyline windows, nearest-first (city-goes-to-sleep order)
     darkCount: 0,         // how many windows are currently darkened
@@ -221,7 +225,7 @@
     document.getElementById("overlay").classList.remove("is-visible");
   }
 
-  /** Stand-in screen for parts built in later tasks (Daily, Stats, How to play). */
+  /** Stand-in screen for parts built in later tasks (Stats, How to play). */
   function showSoon(title) {
     $(".soon-title").textContent = title;
     hideOverlay();
@@ -329,9 +333,9 @@
     if (!nav) return;
     switch (nav.getAttribute("data-nav")) {
       case "continue": resumeSaved(); break;
-      case "daily": showSoon("Daily puzzle"); break;   // Task 13
+      case "daily": openDaily(); break;
       case "levels": showLevels(); break;
-      case "stats": showSoon("Stats"); break;          // Task 14
+      case "stats": openStats(null); break;
       case "howto": showSoon("How to play"); break;    // Task 15
       case "rules": openRules(); break;
       case "settings": openSettings(); break;
@@ -539,6 +543,172 @@
       isLast: App.level >= levelCount(App.tier) };
   }
 
+  // ==========================================================================
+  // DAILY (spec §1 "Daily screen", "Win cards → Daily"; §4)
+  // ==========================================================================
+  // One puzzle per local day (daily.js). Records live in hitori.daily; a game started on
+  // a day stays that day's puzzle past midnight, and only on-time solves (startedKey ===
+  // dailyKey) build the streak, so a late solve of a past day never repairs one.
+  function dailyRecords() { var r = readJSON(LS.daily, {}); return r && typeof r === "object" ? r : {}; }
+  function dailySaveFor(key) {
+    var s = loadSave();
+    return s && s.mode === "daily" && s.dailyKey === key ? s : null;
+  }
+  function monthIndex(d) { return d.getFullYear() * 12 + d.getMonth(); }
+
+  /** Open the Daily screen on the month holding `key` (default: this month). */
+  function openDaily(key) {
+    hideOverlay();
+    var d = parseKey(key || dateKey(new Date()));
+    App.dailyMonth = { y: d.getFullYear(), m: d.getMonth() };
+    renderDaily();
+    showScreen("daily");
+    document.getElementById("screen-daily").scrollTop = 0;
+  }
+
+  function renderDaily() {
+    var today = dateKey(new Date()), rec = dailyRecords();
+    var now = parseKey(today), epoch = parseKey(DAILY_EPOCH);
+    if (!App.dailyMonth) App.dailyMonth = { y: now.getFullYear(), m: now.getMonth() };
+    // Keep the shown month inside [epoch month, this month].
+    var shown = App.dailyMonth.y * 12 + App.dailyMonth.m;
+    shown = Math.max(monthIndex(epoch), Math.min(monthIndex(now), shown));
+    App.dailyMonth = { y: Math.floor(shown / 12), m: shown % 12 };
+    var canPrev = shown > monthIndex(epoch), canNext = shown < monthIndex(now);
+
+    var tr = rec[today], tN = TIERS[dailyTier(today)].size, tSave = dailySaveFor(today);
+    var main = tr ? "Today’s puzzle ✓" : tSave ? "Continue today’s puzzle" : "Play today’s puzzle";
+    var sub = fmtDay(today) + " · " + sizeLabel(tN) +
+      (tr ? " · " + starText(tr.stars || 0) + " · " + fmtTime(tr.bestMs || 0)
+        : tSave ? " · in progress · " + fmtTime(tSave.elapsedMs || 0) : "");
+    var html = '<button class="daily-today' + (tr ? " is-done" : "") + '" data-day="' + today + '">' +
+      '<span class="dt-main">' + main + '</span><span class="dt-sub">' + sub + "</span></button>";
+
+    html += '<div class="daily-stats">' +
+      "<div><b>" + currentStreak(rec, today) + "</b><span>streak</span></div>" +
+      "<div><b>" + bestStreak(rec) + "</b><span>best streak</span></div>" +
+      "<div><b>" + Object.keys(rec).length + "</b><span>solved</span></div></div>";
+
+    html += '<div class="cal">' +
+      '<div class="cal-nav">' +
+      '<button class="cal-arrow" data-cal="-1" aria-label="Previous month"' + (canPrev ? "" : " disabled") + ">‹</button>" +
+      '<span class="cal-title">' + new Date(App.dailyMonth.y, App.dailyMonth.m, 1)
+        .toLocaleDateString("en-GB", { month: "long", year: "numeric" }) + "</span>" +
+      '<button class="cal-arrow" data-cal="1" aria-label="Next month"' + (canNext ? "" : " disabled") + ">›</button></div>" +
+      '<div class="cal-grid">';
+    ["M", "T", "W", "T", "F", "S", "S"].forEach(function (d) { html += '<span class="cal-head" aria-hidden="true">' + d + "</span>"; });
+    var playing = loadSave();
+    var playingKey = playing && playing.mode === "daily" ? playing.dailyKey : null;
+    monthGrid(App.dailyMonth.y, App.dailyMonth.m).forEach(function (k) {
+      if (!k) { html += '<span class="cal-cell is-blank"></span>'; return; }
+      var day = +k.slice(8);
+      if (k < DAILY_EPOCH) { html += '<span class="cal-cell is-before" aria-hidden="true">' + day + "</span>"; return; }
+      if (k > today) {
+        html += '<button class="cal-cell is-future" disabled aria-label="' + fmtDay(k) + ', not yet">' + day + "</button>";
+        return;
+      }
+      var r = rec[k];
+      var state = r ? (r.onTime ? "is-ontime" : "is-late") : "is-missed";
+      var label = fmtDay(k) + (r ? (r.onTime ? ", solved on the day" : ", solved later")
+        : k === today ? ", today" : ", not solved, playable") + (k === playingKey ? ", in progress" : "");
+      html += '<button class="cal-cell ' + state + (k === today ? " is-today" : "") + (k === playingKey ? " is-playing" : "") +
+        '" data-day="' + k + '" aria-label="' + label + '">' + day +
+        (r ? '<span class="cal-mark" aria-hidden="true">✓</span>' : "") + "</button>";
+    });
+    html += "</div>" +
+      '<div class="cal-legend">' +
+      '<span><i class="lg lg-ontime" aria-hidden="true">✓</i>on the day</span>' +
+      '<span><i class="lg lg-late" aria-hidden="true">✓</i>solved later</span>' +
+      '<span><i class="lg lg-missed" aria-hidden="true"></i>missed · playable</span>' +
+      '<span><i class="lg lg-future" aria-hidden="true"></i>not yet</span></div>' +
+      '<p class="cal-note">Past days can be played any time. Only a puzzle started on its own day counts toward the streak.</p>' +
+      "</div>";
+    html += '<button class="daily-stats-link" data-nav="daily-stats">Stats → Daily</button>';
+    document.getElementById("daily-body").innerHTML = html;
+  }
+
+  function stepDailyMonth(delta) {
+    var d = new Date(App.dailyMonth.y, App.dailyMonth.m + delta, 1);
+    App.dailyMonth = { y: d.getFullYear(), m: d.getMonth() };
+    renderDaily();
+  }
+
+  function onDailyClick(ev) {
+    var day = ev.target.closest("[data-day]");
+    if (day && !day.disabled) { startDaily(day.getAttribute("data-day")); return; }
+    var cal = ev.target.closest("[data-cal]");
+    if (cal && !cal.disabled) { stepDailyMonth(parseInt(cal.getAttribute("data-cal"), 10)); return; }
+    if (ev.target.closest('[data-nav="daily-stats"]')) openStats("daily");
+  }
+
+  /** Stats screen, opened on a tab ("daily" from the Daily screen). Task 14 builds the
+   *  screen; until then this is the placeholder. App.statsTab carries the requested tab. */
+  function openStats(tab) {
+    App.statsTab = tab || null;
+    showSoon("Stats");
+  }
+
+  /** The day's puzzle: from hitori.dailyCache when it holds that day, else generated (and cached). */
+  function dailyBoard(key) {
+    var tier = dailyTier(key), N = TIERS[tier].size;
+    var c = readJSON(LS.dailyCache, null);
+    if (c && c.key === key && Array.isArray(c.numbers) && Array.isArray(c.solution) &&
+        c.numbers.length === N * N && c.solution.length === N * N) {
+      return { tier: tier, N: N, numbers: c.numbers, solution: c.solution };
+    }
+    var p = dailyPuzzle(key);
+    var out = { tier: p.tier, N: p.N, numbers: Array.from(p.numbers), solution: Array.from(p.solution) };
+    writeJSON(LS.dailyCache, { key: key, numbers: out.numbers, solution: out.solution });
+    return out;
+  }
+
+  /**
+   * Play the daily for `key`: resume it when it is the game in progress, otherwise show the
+   * "building" sheet, let it paint, then build (or read from the cache) and start it.
+   * Future days and days before DAILY_EPOCH are ignored.
+   */
+  function startDaily(key) {
+    var today = dateKey(new Date());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || key < DAILY_EPOCH || key > today) return;
+    var saved = dailySaveFor(key);
+    if (saved) { startGame(saved); return; }
+    showOverlay('<div class="daily-building"><div class="sheet-title">' +
+      (key === today ? "Building tonight’s puzzle…" : "Building the " + fmtDay(key) + " puzzle…") + "</div>" +
+      '<p class="sheet-text">' + sizeLabel(TIERS[dailyTier(key)].size) + " · the same board for everyone</p></div>");
+    setTimeout(function () {   // let the sheet paint before the (blocking) generator runs
+      var p;
+      try { p = dailyBoard(key); } catch (e) { p = null; }
+      if (!p) {
+        showOverlay('<div class="sheet-head"><span class="sheet-title">That daily won’t open</span></div>' +
+          '<p class="sheet-text">The puzzle for ' + fmtDay(key) + " couldn’t be built. Your progress is safe.</p>" +
+          '<div class="sheet-buttons"><button class="btn btn--primary" data-act="daily-back">Back</button></div>');
+        return;
+      }
+      startGame({ mode: "daily", tier: p.tier, N: p.N, numbers: p.numbers, solution: p.solution,
+        dailyKey: key, startedKey: today });
+    }, 40);
+  }
+
+  /** Daily win: the record (stars, best time, on-time) and a solve in the activity log. */
+  function recordDailyWin() {
+    var ms = currentMs(), mistakes = (App.tracker && App.tracker.mistakes) || 0;
+    var stars = computeStars(App.hintsUsed, mistakes);
+    var onTime = !!App.startedKey && App.startedKey === App.dailyKey;
+    var today = dateKey(new Date()), rec = dailyRecords(), old = rec[App.dailyKey] || null;
+    rec = recordDaily(rec, App.dailyKey, onTime, stars, ms);
+    writeJSON(LS.daily, rec);
+    writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), today, "daily", App.hintsUsed));
+    App.dailyResult = { stars: stars, ms: ms, onTime: onTime, prevBest: old ? old.bestMs : null,
+      streak: currentStreak(rec, today), best: bestStreak(rec) };
+  }
+
+  /** "Hitori Daily · Sat 17 Oct · 9×9 · 3:41 · ★★★ 🔥4" (no 🔥 for a late or streakless solve). */
+  function dailyShareHead() {
+    var R = App.dailyResult;
+    return "Hitori Daily · " + fmtDay(App.dailyKey) + " · " + sizeLabel(App.N) + " · " + fmtTime(R.ms) +
+      " · " + starText(R.stars) + (R.onTime && R.streak ? " 🔥" + R.streak : "");
+  }
+
   // ---- Rules + Settings overlays -------------------------------------------
   function openRules() {
     showOverlay(
@@ -626,8 +796,8 @@
     if (!resume) {
       recordAbandon(loadSave());              // overwriting an unsolved free game breaks its streak
       if (cfg.mode === "free") recordStart(cfg.tier);
-      if (cfg.mode === "level") {
-        writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), dateKey(new Date()), "level", 0, { started: true }));
+      if (cfg.mode === "level" || cfg.mode === "daily") {
+        writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), dateKey(new Date()), cfg.mode, 0, { started: true }));
       }
     }
     clearWinTimers();
@@ -1134,8 +1304,9 @@
     if (!isSolved()) return;
     App.won = true;
     stopTimer();
-    if (App.mode === "free") recordWin();   // daily records: Task 13
+    if (App.mode === "free") recordWin();
     if (App.mode === "level") recordLevelWin();
+    if (App.mode === "daily") recordDailyWin();
     clearSave();
     runWinAnimation();
   }
@@ -1195,12 +1366,20 @@
       extra = "best " + (s.bestMs ? fmtTime(s.bestMs) : "—") + " · streak " + (s.currentStreak || 0);
     }
     var level = App.mode === "level" && App.levelResult;
+    var daily = App.mode === "daily" && App.dailyResult;
     var starsEl = $(".win-stars");
     starsEl.innerHTML = "";
-    if (level) {
-      var R = App.levelResult;
-      extra = R.prevBest && R.ms < R.prevBest ? "new best · was " + fmtTime(R.prevBest)
-        : R.prevBest ? "best " + fmtTime(R.best) : "first solve";
+    if (level || daily) {
+      var R = level || daily;
+      if (level) {
+        extra = R.prevBest && R.ms < R.prevBest ? "new best · was " + fmtTime(R.prevBest)
+          : R.prevBest ? "best " + fmtTime(R.best) : "first solve";
+      } else {
+        // On time: the streak (and "your best" when it is). Late: it doesn't count.
+        extra = !R.onTime ? "played later · doesn’t count toward your streak"
+          : "🔥 " + R.streak + "-day streak" + (R.streak > 1 && R.streak === R.best ? " · your best" : "");
+        if (R.prevBest && R.ms < R.prevBest) extra += " · new best";
+      }
       // Solved · no hints · no mistakes; revealed one by one, the earned ones lit.
       var earned = [true, App.hintsUsed === 0, ((App.tracker && App.tracker.mistakes) || 0) === 0];
       var captions = ["solved", "no hints", "no mistakes"];
@@ -1216,10 +1395,17 @@
       });
     }
     document.querySelector(".win-extra").textContent = extra;
-    $(".win-panel").classList.toggle("win--level", !!level);
+    // Level and daily wins share the solid bottom card; the daily lays out Share over
+    // Calendar · Home.
+    $(".win-panel").classList.toggle("win--level", !!(level || daily));
+    $(".win-panel").classList.toggle("win--daily", !!daily);
+    $(".win-share").classList.toggle("btn--primary", !!daily);
+    $(".win-share").classList.toggle("btn--secondary", !daily);
     $(".win-again").style.display = App.mode === "free" ? "" : "none";
     $(".win-share").style.display = level ? "none" : "";
-    $(".win-menu").style.display = level ? "none" : "";
+    $(".win-menu").style.display = App.mode === "free" ? "" : "none";
+    $(".win-calendar").style.display = daily ? "" : "none";
+    $(".win-home").style.display = daily ? "" : "none";
     $(".win-next").style.display = level && !App.levelResult.isLast ? "" : "none";
     $(".win-replay").style.display = level ? "" : "none";
     $(".win-levels").style.display = level ? "" : "none";
@@ -1340,7 +1526,8 @@
       for (var c = 0; c < N; c++) row += sol[r * N + c] ? "⬛" : "⬜";
       lines.push(row);
     }
-    var text = "Hitori — " + App.title + " " + N + "×" + N + "\n" + fmtTime(currentMs()) + "\n\n" + lines.join("\n");
+    var text = App.mode === "daily" && App.dailyResult ? dailyShareHead() + "\n" + lines.join("\n")
+      : "Hitori — " + App.title + " " + N + "×" + N + "\n" + fmtTime(currentMs()) + "\n\n" + lines.join("\n");
     var btn = document.querySelector(".win-share");
     function done(ok) { btn.textContent = ok ? "Copied!" : "Copy failed"; setTimeout(function () { btn.textContent = "Share"; }, 1600); }
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1400,6 +1587,7 @@
           case "restart": restart(); break;
           case "intro-start": startPendingLevel(); break;
           case "level-back": showTier(App.levelTier); break;
+          case "daily-back": openDaily(); break;
         }
         return;
       }
@@ -1447,6 +1635,12 @@
     $(".win-next").addEventListener("click", function () { playLevel(App.tier, App.level + 1); });
     $(".win-replay").addEventListener("click", function () { playLevel(App.tier, App.level); });
     $(".win-levels").addEventListener("click", function () { leaveWin(); showTier(App.tier); });
+    $(".win-calendar").addEventListener("click", function () { openDaily(App.dailyKey); });
+    $(".win-home").addEventListener("click", goHome);
+
+    // Daily screen: today's button, calendar days and paging, the Stats link (delegated).
+    $(".daily-back").addEventListener("click", goHome);
+    document.getElementById("daily-body").addEventListener("click", onDailyClick);
 
     // Levels overview, a tier's grid, its pinned Play button.
     $(".levels-back").addEventListener("click", goHome);

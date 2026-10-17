@@ -386,6 +386,141 @@ body {
   font-weight: 300; font-size: 13px; line-height: 1.5; color: var(--muted);
 }
 
+/* ============================ DAILY ==================================== */
+/* Today's button, three stat tiles, the month calendar and the Stats link. */
+.daily-body { display: flex; flex-direction: column; gap: var(--space-3); padding-bottom: var(--space-4); }
+.daily-today {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: 12px;
+  background: var(--sodium-light);
+  color: var(--night);
+  box-shadow: var(--shadow-lit);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: var(--transition-default);
+}
+.daily-today:active { transform: scale(0.985); }
+.daily-today.is-done { background: var(--band-far); color: var(--lit); border: 1px solid var(--sodium-light); box-shadow: none; }
+.dt-main { font-weight: 500; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; }
+.dt-sub { margin-top: 2px; font-weight: 400; font-size: 12px; opacity: 0.85; }
+.daily-today.is-done .dt-sub { color: var(--muted); opacity: 1; }
+
+.daily-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+.daily-stats > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px var(--space-1);
+  border-radius: 10px;
+  background: var(--band-far);
+}
+.daily-stats b { font-weight: 500; font-size: 20px; color: var(--sodium-light); font-variant-numeric: tabular-nums; }
+.daily-stats span { margin-top: 2px; font-weight: 300; font-size: 11px; color: var(--muted); }
+
+.cal { padding: var(--space-2) var(--space-2) var(--space-3); border-radius: 12px; background: var(--band-mid); }
+.cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-2); }
+.cal-arrow {
+  width: 44px; height: 44px;
+  border: none; border-radius: 8px;
+  background: transparent;
+  color: var(--sodium-light);
+  font-family: var(--font-mono); font-size: 22px;
+  cursor: pointer;
+}
+.cal-arrow:disabled { color: var(--outline); cursor: default; }
+.cal-title { font-weight: 500; font-size: 14px; letter-spacing: 0.08em; color: var(--lit); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-head { padding-bottom: 2px; text-align: center; font-weight: 400; font-size: 11px; color: var(--muted); }
+.cal-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;              /* the column sets the width; aspect-ratio then sets the height */
+  min-width: 0;             /* (else the 44px min-height would be carried over to the width) */
+  min-height: 44px;
+  aspect-ratio: 1 / 1;      /* square from ~360px up; narrower, a cell stays 44px tall */
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lit);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+button.cal-cell { cursor: pointer; transition: var(--transition-default); }
+button.cal-cell:active:not(:disabled) { transform: scale(0.95); }
+.cal-cell.is-blank { visibility: hidden; }
+.cal-cell.is-before { color: var(--outline); }
+/* the four day states: solved on the day / solved later / missed but playable / future */
+.cal-cell.is-ontime { background: var(--lit); color: var(--lit-digit); box-shadow: var(--shadow-lit); }
+.cal-cell.is-late { background: var(--band-far); border: 1px dashed var(--sodium-light); }
+.cal-cell.is-missed { background: var(--band-far); border-color: var(--outline); }
+.cal-cell.is-future { color: var(--muted); opacity: 0.4; cursor: default; }
+.cal-cell.is-today { outline: 2px solid var(--sodium-light); outline-offset: 1px; font-weight: 500; }
+.cal-mark { position: absolute; top: 2px; right: 4px; font-size: 9px; line-height: 1; color: var(--sodium-light); }
+.cal-cell.is-ontime .cal-mark { color: var(--sodium-dark); }
+/* the day in progress: a small sodium dot under the number */
+.cal-cell.is-playing::after {
+  content: "";
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  width: 4px; height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--sodium-light);
+}
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-3);
+  font-weight: 300;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lg {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-style: normal; font-size: 8px;
+}
+.lg-ontime { background: var(--lit); color: var(--sodium-dark); }
+.lg-late { background: var(--band-far); border: 1px dashed var(--sodium-light); color: var(--sodium-light); }
+.lg-missed { background: var(--band-far); border-color: var(--outline); }
+.lg-future { border-color: var(--outline); opacity: 0.5; }
+.cal-note { margin-top: var(--space-2); font-weight: 300; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.daily-stats-link {
+  align-self: center;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--sodium-light);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+/* "Building tonight's puzzle…" sheet while the generator runs. */
+.daily-building { text-align: center; padding: var(--space-2) 0; }
+.daily-building .sheet-text { margin-top: var(--space-2); color: var(--muted); }
+@media (max-width: 360px) {
+  .cal { padding-left: var(--space-1); padding-right: var(--space-1); }
+  .cal-grid { gap: 3px; }
+}
+
 /* ============================ TIER LIST ================================= */
 .tier-list { display: flex; flex-direction: column; gap: 6px; }
 .tier {
@@ -901,6 +1036,8 @@ body:not(.no-violations) .cell--shaded.violation {
 .win--level .win-tier { font-size: 18px; letter-spacing: 0.12em; }
 .win--level .win-time { font-size: 32px; margin: var(--space-1) 0 var(--space-3); }
 .win--level .win-extra { margin-bottom: var(--space-3); }
+/* Daily win: Share spans the row, Calendar · Home share the next. */
+.win--daily .win-share { grid-column: 1 / -1; }
 
 /* ============================ SPLASH ================================== */
 /* Cold-start only: HITORI as six lit cells; the final I dims out (the title solves
