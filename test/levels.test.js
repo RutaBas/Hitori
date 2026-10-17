@@ -22,8 +22,8 @@ function check(label, cond) {
 // hashString of each tier's first 100 strings joined by ",". Filled from the batch-1 build;
 // these must never change (adding batches appends, it never rewrites).
 const BATCH1_FINGERPRINTS = {
-  1: 1049127176, 2: 2209629218, 3: 1964000077,
-  4: 982495849, 5: 790968798, 6: 2575474978,
+  1: 2467617565, 2: 2477356850, 3: 2345767946,
+  4: 72200376, 5: 3497355500, 6: 1672671954,
 };
 
 // Spearman rank correlation with average ranks for ties.
@@ -85,25 +85,21 @@ for (let t = 1; t <= 6; t++) {
   const N = G.TIERS[t].size, top = G.TIERS[t].technique;
   const batches = L.levelCount(t) / P.LEVELS_PER_BATCH;
   for (let b = 0; b < batches; b++) {
-    // Difficulty key = the build's sort key: topSteps first, then fewer opening cells is
-    // harder. Spearman on topSteps ALONE is capped far below 0.8 by ties (at 7x7/8x8 ~95 of
-    // 100 candidates need exactly one T4 step), so the ramp is checked on the full key, and
-    // topSteps itself must never decrease (stricter than "decreases less than it increases").
-    const idx = [], steps = [], key = [];
+    // Primary key = hardWork (tier-weighted cells decided by T3+ steps), the build's sort
+    // key. It must never decrease within a batch, and must itself carry the ramp: Spearman
+    // on the primary key alone (opening is only a tie-break) must be >= 0.8.
+    const idx = [], work = [];
     for (let k = 0; k < P.LEVELS_PER_BATCH; k++) {
       const n = b * P.LEVELS_PER_BATCH + k + 1;
-      const s = T.scorePuzzle(L.levelNumbers(t, n), N, top);
       idx.push(k);
-      steps.push(s.topSteps);
-      key.push(s.topSteps * 1000 - s.opening);
+      work.push(T.scorePuzzle(L.levelNumbers(t, n), N, top).hardWork);
     }
     let drops = 0;
-    for (let k = 1; k < steps.length; k++) if (steps[k] < steps[k - 1]) drops++;
+    for (let k = 1; k < work.length; k++) if (work[k] < work[k - 1]) drops++;
     const label = "tier " + t + " batch " + (b + 1) + ": ";
-    check(label + "topSteps never decreases (" + steps[0] + " -> " + steps[steps.length - 1] +
-      "; Spearman on topSteps alone " + spearman(idx, steps).toFixed(3) + ")", drops === 0);
-    const rho = spearman(idx, key);
-    check(label + "Spearman(index, difficulty key) = " + rho.toFixed(3) + " >= 0.8", rho >= 0.8);
+    check(label + "hardWork never decreases (" + work[0] + " -> " + work[work.length - 1] + ")", drops === 0);
+    const rho = spearman(idx, work);
+    check(label + "Spearman(index, hardWork) = " + rho.toFixed(3) + " >= 0.8", rho >= 0.8);
   }
 }
 
@@ -118,7 +114,8 @@ console.log("scorePuzzle sanity");
   const nums = L.levelNumbers(1, 1);
   const s1 = T.scorePuzzle(nums, 5, 3), s2 = T.scorePuzzle(nums, 5, 3);
   check("scorePuzzle is deterministic and credits >= 1 top-tier step",
-    s1.topSteps === s2.topSteps && s1.opening === s2.opening && s1.topSteps >= 1);
+    s1.topSteps === s2.topSteps && s1.opening === s2.opening && s1.topSteps >= 1 &&
+    s1.hardWork === s2.hardWork && s1.hardWork >= s1.topSteps);
   check("opening is within 0..N^2", s1.opening >= 0 && s1.opening <= 25);
 }
 

@@ -13,7 +13,7 @@
  * Per tier, per new batch b: candidate c is seeded by
  *   mulberry32(hashString("level-" + tier + "-batch-" + b + "-cand-" + c))
  * and kept if it is unique, needs exactly TIERS[tier].technique, and is new. 400 kept
- * candidates are sorted by scorePuzzle (topSteps asc, opening desc, string asc) and 100
+ * candidates are sorted by scorePuzzle (hardWork asc, opening desc, string asc) and 100
  * are taken evenly spaced. Fully deterministic: two runs write identical files.
  */
 const fs = require("fs");
@@ -28,20 +28,29 @@ const OUT = path.join(__dirname, "..", "js", "levels.js");
 const TIER_FNS_LOCAL = [null, S.applyT1, S.applyT2, S.applyT3, S.applyT4, S.applyT5, S.applyT6];
 
 /*
- * Difficulty score from a cheapest-first solve (same loop as solver.js deduce, counting
- * which tier made each step). topSteps = steps credited to topTier; opening = cells
- * decided by T1-T2 alone from the empty board.
+ * Difficulty score from a cheapest-first solve (same loop as solver.js deduce, recording
+ * which tier made each step and how many cells it decided).
+ *   hardWork      = PRIMARY key: tier-weighted count of cells decided by hard steps
+ *                   (T3=1, T4=2, T5=3, T6=4 per cell; T1/T2 count 0). It measures how much
+ *                   of the board needs hard reasoning, and unlike step counts it still
+ *                   spreads out at 5x5/6x6, where a T3 puzzle usually needs only 1 T3 step.
+ *   hardSteps     = number of steps at tier >= 3
+ *   weightedSteps = tier-weighted step count (same weights)
+ *   topSteps      = steps credited to topTier
+ *   opening       = cells decided by T1-T2 alone from the empty board (tie-break: more = easier)
  */
+const HARD_WEIGHT = [0, 0, 0, 1, 2, 3, 4];
 function scorePuzzle(numbers, N, topTier) {
   const cells = new Int8Array(N * N);
   const counts = [0, 0, 0, 0, 0, 0, 0];
+  const cellsBy = [0, 0, 0, 0, 0, 0, 0];
   for (;;) {
     if (S.partialConflict(cells, numbers, N)) break;
     let progressed = false;
     for (let t = 1; t <= 6; t++) {
       const r = TIER_FNS_LOCAL[t](cells, numbers, N);
       if (r.contradiction) break;
-      if (r.changed > 0) { counts[t]++; progressed = true; break; }
+      if (r.changed > 0) { counts[t]++; cellsBy[t] += r.changed; progressed = true; break; }
     }
     if (!progressed) break;
   }
@@ -49,11 +58,17 @@ function scorePuzzle(numbers, N, topTier) {
   S.deduce(open, numbers, N, 2);
   let opening = 0;
   for (let i = 0; i < open.length; i++) if (open[i] !== S.SolveCell.UNKNOWN) opening++;
-  return { topSteps: counts[topTier], opening };
+  let hardWork = 0, hardSteps = 0, weightedSteps = 0;
+  for (let t = 3; t <= 6; t++) {
+    hardWork += cellsBy[t] * HARD_WEIGHT[t];
+    hardSteps += counts[t];
+    weightedSteps += counts[t] * HARD_WEIGHT[t];
+  }
+  return { hardWork, hardSteps, weightedSteps, topSteps: counts[topTier], opening };
 }
 
 function byScore(a, b) {
-  return a.topSteps - b.topSteps || b.opening - a.opening || (a.str < b.str ? -1 : a.str > b.str ? 1 : 0);
+  return a.hardWork - b.hardWork || b.opening - a.opening || (a.str < b.str ? -1 : a.str > b.str ? 1 : 0);
 }
 
 /* Build batch `batch` (1-based) of `tier`. `existing` = strings to avoid (earlier batches). */
@@ -77,14 +92,14 @@ function buildBatch(tier, batch, existing) {
     if (existing.has(str) || seen.has(str)) continue;
     seen.add(str);
     const s = scorePuzzle(p.numbers, cfg.size, cfg.technique);
-    pool.push({ str, topSteps: s.topSteps, opening: s.opening });
+    pool.push({ str, hardWork: s.hardWork, opening: s.opening });
   }
   pool.sort(byScore);
   const picks = [];
   for (let k = 0; k < per; k++) picks.push(pool[Math.round(k * (POOL - 1) / (per - 1))]);
   console.log("  tier " + tier + " (" + cfg.name + " " + cfg.size + "x" + cfg.size + ") batch " + batch +
-    ": " + pool.length + " candidates from " + c + " tries, topSteps " + picks[0].topSteps +
-    " -> " + picks[per - 1].topSteps);
+    ": " + pool.length + " candidates from " + c + " tries, hardWork " + picks[0].hardWork +
+    " -> " + picks[per - 1].hardWork);
   return picks.map((x) => x.str);
 }
 
