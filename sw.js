@@ -19,7 +19,9 @@ const SHELL = [
   "js/solver.js",
   "js/generator.js",
   "js/ui.js",
-  "skyline.svg",
+  // NOTE: skyline.svg is NOT listed — its markup is inlined directly into index.html, so
+  // the file is a design source, not a runtime asset. Precaching it would make install
+  // fail (cache.addAll rejects on any miss) if the source file isn't deployed.
   "icons/icon-180.png",
   "icons/icon-192.png",
   "icons/icon-512.png",

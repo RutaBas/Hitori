@@ -1,0 +1,30 @@
+# --- Design sources / working files (kept locally, not shipped) ---------------
+# Markdown notes (the design brief section etc.). README.md is the exception below.
+*.md
+!README.md
+# Design specs and plans ARE kept.
+!docs/**/*.md
+
+# Moodboards — exploration artifacts, superseded by the built app.
+moodboard-*.html
+
+# Skyline design sources. NOTE: the skyline markup is inlined directly into
+# index.html, so these files are not runtime assets and sw.js does not precache them.
+skyline.svg
+skyline_old.svg
+
+# --- Saved-page artifacts (Edge/Chrome "Save as...") --------------------------
+*.mhtml
+*.mht
+*_files/
+
+# --- OS / editor noise --------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# --- Brainstorming mockups (visual companion) ---------------------------------
+.superpowers/
