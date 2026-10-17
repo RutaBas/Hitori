@@ -252,12 +252,6 @@
     document.getElementById("overlay").classList.remove("is-visible");
   }
 
-  /** Stand-in screen for parts built in later tasks (How to play). */
-  function showSoon(title) {
-    $(".soon-title").textContent = title;
-    hideOverlay();
-    showScreen("soon");
-  }
   function goHome() {
     hideOverlay();
     renderHome();
@@ -364,7 +358,7 @@
       case "daily": openDaily(); break;
       case "levels": showLevels(); break;
       case "stats": openStats(null); break;
-      case "howto": showSoon("How to play"); break;    // Task 15
+      case "howto": openTutorial(); break;
       case "rules": openRules(); break;
       case "settings": openSettings(); break;
     }
@@ -1061,6 +1055,141 @@
     if (key === "violations") {
       document.body.classList.toggle("no-violations", !App.settings.violations);
       if (App.board && !App.won) { if (App.settings.violations) showViolations(); else clearViolations(); }
+    }
+  }
+
+  // ==========================================================================
+  // TUTORIAL (spec §1 Tutorial and Rules): four lessons from TUTORIAL_LESSONS
+  // (progress.js) on tiny boards with the real cell look. The player makes the move
+  // before Next opens; a move off the answer gets a "not quite" line after a pause.
+  // Finishing (solving the last lesson), skipping or Play sets hitori.tutorialDone.
+  // ==========================================================================
+  var TUT_WRONG_MS = 1200;   // wait this long after a wrong move before saying so
+  var tut = null;            // { k, marks, step, done, passed: { k: true }, timer }
+  var MARK_CHAR = { ".": CellState.UNMARKED, S: CellState.SHADED, O: CellState.CIRCLED };
+
+  function openTutorial() {
+    hideOverlay();
+    tut = { k: 0, passed: {} };
+    renderTutorial();
+    showScreen("tutorial");
+  }
+  function finishTutorial() { writeJSON(LS.tutorialDone, true); }
+  function exitTutorial() {
+    if (tut) clearTimeout(tut.timer);
+    tut = null;
+    goHome();
+  }
+
+  function tutCellLabel(lesson, i, m) {
+    return lesson.numbers[i] + (m === CellState.SHADED ? ", shaded" : m === CellState.CIRCLED ? ", circled" : "") +
+      (lesson.givens[i] !== "." ? ", set for you" : "");
+  }
+
+  function renderTutorial() {
+    clearTimeout(tut.timer);
+    var L = TUTORIAL_LESSONS[tut.k], last = tut.k === TUTORIAL_LESSONS.length - 1;
+    tut.marks = L.givens.split("").map(function (ch) { return MARK_CHAR[ch]; });
+    tut.step = 0;
+    tut.done = !!tut.passed[tut.k];
+
+    var dots = "";
+    for (var d = 0; d < TUTORIAL_LESSONS.length; d++) {
+      dots += '<span class="tut-dot' + (d === tut.k ? " on" : d < tut.k ? " past" : "") + '"></span>';
+    }
+    var dotsEl = document.getElementById("tut-dots");
+    dotsEl.innerHTML = dots;
+    dotsEl.setAttribute("aria-label", "Lesson " + (tut.k + 1) + " of " + TUTORIAL_LESSONS.length);
+
+    var html = '<h1 class="tut-title">' + esc(L.title) + "</h1>" +
+      '<p class="tut-text">' + L.text + "</p>" +         // lesson text is trusted data with <b>
+      '<div class="tut-board tut-board--n' + L.N + '" id="tut-board" style="--tn:' + L.N + '">';
+    for (var i = 0; i < L.N * L.N; i++) {
+      var m = tut.marks[i], given = L.givens[i] !== ".";
+      html += '<div class="cell' + (m === CellState.SHADED ? " cell--shaded" : m === CellState.CIRCLED ? " cell--circled" : "") +
+        (given ? " tut-given" : "") + '" data-i="' + i + '" role="button" aria-label="' + tutCellLabel(L, i, m) + '"' +
+        (given ? ' aria-disabled="true"' : "") + ">" +
+        '<span class="digit">' + L.numbers[i] + "</span>" +
+        '<svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="38"></circle></svg></div>';
+    }
+    html += "</div>";
+    html += '<p class="tut-task" id="tut-task" aria-live="polite"></p>';
+    html += '<div class="tut-controls">' +
+      (tut.k > 0 ? '<button class="btn btn--secondary" data-tut="back">Back</button>' : "") +
+      (last
+        ? '<button class="btn btn--primary" data-tut="play">Play a Crowded 5×5</button>'
+        : '<button class="btn btn--primary" data-tut="next">Next</button>') +
+      "</div>" +
+      '<button class="tut-skip" data-tut="skip">' + (last ? "back to home" : "skip tutorial") + "</button>";
+    document.getElementById("tut-body").innerHTML = html;
+    setTutTask(L.task, "");
+    syncTutButtons();
+    var scr = document.getElementById("screen-tutorial");
+    if (scr) scr.scrollTop = 0;
+  }
+
+  function setTutTask(text, cls) {
+    var task = document.getElementById("tut-task");
+    if (!task) return;
+    task.textContent = text;
+    task.className = "tut-task" + (cls ? " " + cls : "");
+  }
+  /** Next / Play open once this lesson has been solved (now or earlier this session). */
+  function syncTutButtons() {
+    var b = document.querySelector('#tut-body [data-tut="next"], #tut-body [data-tut="play"]');
+    if (b) b.disabled = !tut.done;
+  }
+
+  function onTutorialClick(ev) {
+    if (!tut) return;
+    var btn = ev.target.closest("[data-tut]");
+    if (btn) {
+      if (btn.disabled) return;
+      switch (btn.getAttribute("data-tut")) {
+        case "back": tut.k--; renderTutorial(); break;
+        case "next": tut.k++; renderTutorial(); break;
+        case "skip": finishTutorial(); exitTutorial(); break;
+        case "play": finishTutorial(); clearTimeout(tut.timer); tut = null; startTier(1); break;
+      }
+      return;
+    }
+    var node = ev.target.closest(".tut-board .cell");
+    if (node) onTutorialTap(node);
+  }
+
+  function onTutorialTap(node) {
+    var L = TUTORIAL_LESSONS[tut.k];
+    var i = parseInt(node.getAttribute("data-i"), 10);
+    if (L.givens[i] !== ".") return;                   // given marks are locked
+    var next = (tut.marks[i] + 1) % 3;                  // the real cycle: unmarked -> shaded -> circled
+    tut.marks[i] = next;
+    node.classList.toggle("cell--shaded", next === CellState.SHADED);
+    node.classList.toggle("cell--circled", next === CellState.CIRCLED);
+    node.setAttribute("aria-label", tutCellLabel(L, i, next));
+    if (next === CellState.SHADED) { Sound.click(); haptic(10); pulseScaleDip(node); }
+    else if (next === CellState.CIRCLED) Sound.tick();
+    else { Sound.click(); haptic(10); }
+
+    clearTimeout(tut.timer);
+    var r = tutorialProgress(L, tut.step, tut.marks);
+    tut.step = r.step;
+    if (r.solved) {
+      tut.done = true;
+      tut.passed[tut.k] = true;
+      if (tut.k === TUTORIAL_LESSONS.length - 1) finishTutorial();
+      setTutTask(L.done, "good");
+    } else if (L.steps) {
+      setTutTask(L.steps[Math.min(tut.step, L.steps.length - 1)].task, "");
+    } else {
+      setTutTask(L.task, "");
+    }
+    // A lesson solved once stays passed (Next stays open) even if the player keeps playing.
+    syncTutButtons();
+    if (r.wrong) {
+      var k = tut.k;
+      tut.timer = setTimeout(function () {
+        if (tut && tut.k === k) setTutTask(L.wrong, "oops");
+      }, TUT_WRONG_MS);
     }
   }
 
@@ -1870,7 +1999,9 @@
 
     // Home cards, tiers and footer; the sheet overlay can route too (Rules -> Tutorial).
     document.getElementById("home-list").addEventListener("click", onHomeClick);
-    $(".soon-back").addEventListener("click", goHome);
+    // Tutorial: Home, the lesson board and its buttons (delegated; renderTutorial redraws).
+    $(".tut-exit").addEventListener("click", exitTutorial);
+    document.getElementById("tut-body").addEventListener("click", onTutorialClick);
     document.getElementById("overlay").addEventListener("click", function (e) {
       if (e.target.id === "overlay" || e.target.closest("[data-close]")) { dismissOverlay(); return; }
       var act = e.target.closest("[data-act]");

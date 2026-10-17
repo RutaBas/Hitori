@@ -128,10 +128,122 @@ function migrateSave(s) {
   return out;
 }
 
+/*
+ * The tutorial's lessons (the UI is renderTutorial in ui.js). Each lesson is a tiny board:
+ *   N, numbers   the digits, row-major
+ *   givens       pre-set marks, one char per cell: "." unmarked, "S" shaded, "O" circled.
+ *                Given cells are locked.
+ *   answer       the finished board: "S" must be shaded, "O" must be circled, "." must
+ *                stay lit (unmarked or circled — a circle on a lit cell is never wrong)
+ *   task         the line under the board (what to do now); wrong = the delayed
+ *                "not quite" line; done = the line once it's solved
+ *   steps        (lesson 1 only) marks to reach in order, each matched exactly, with its
+ *                own task line; the last one is the answer
+ * text may hold <b>; everything else is plain text.
+ */
+const TUTORIAL_LESSONS = [
+  {
+    title: "Tap to mark",
+    text: "Each tap changes a cell. <b>Once</b> shades it dark. <b>Twice</b> circles it: " +
+      "your note that it stays lit. <b>Three times</b> clears it again.",
+    N: 3,
+    numbers: [1, 2, 3,
+              2, 3, 1,
+              3, 1, 2],
+    givens: ".........",
+    answer: ".........",
+    task: "Tap the middle 3 to shade it.",
+    steps: [
+      { marks: "....S....", task: "Tap the middle 3 to shade it." },
+      { marks: "....O....", task: "Now tap it again to circle it." },
+      { marks: ".........", task: "Tap once more to clear it." },
+    ],
+    wrong: "That's a different cell. Tap it until it's clear, then go back to the middle 3.",
+    done: "Nice. That's the whole cycle: shade, circle, clear.",
+  },
+  {
+    title: "Rule 1: no repeats",
+    text: "No number may repeat among the <b>lit</b> cells of a row or column. " +
+      "Shading a cell takes its number out of both.",
+    N: 3,
+    numbers: [1, 2, 3,
+              2, 3, 1,
+              3, 1, 1],
+    givens: ".........",
+    answer: "........S",
+    task: "The bottom row and the right column each have two lit 1s. Shade one 1 to fix both.",
+    wrong: "That still leaves two lit 1s in a line. Try the 1 where the row and column meet.",
+    done: "Nice. One shade, two lines fixed.",
+  },
+  {
+    title: "Rule 2: no touching",
+    text: "Shaded cells <b>can't touch side by side</b>. Touching at the corners is fine. " +
+      "The 3 at the top is already shaded.",
+    N: 4,
+    numbers: [1, 2, 3, 4,
+              2, 3, 3, 1,
+              3, 4, 1, 2,
+              4, 1, 2, 3],
+    givens: "..S.............",
+    answer: "..S..S..........",
+    task: "The second row has two 3s. Shade the one that doesn't touch the shaded cell.",
+    wrong: "Not quite: those two shaded cells touch side by side. Shade the other 3.",
+    done: "Nice. Diagonal neighbours are fine.",
+  },
+  {
+    title: "Rule 3: stay connected",
+    text: "All the lit cells must <b>stay connected</b> in one piece, through their sides. " +
+      "Shade the wrong cell and you can wall a lit cell in. The 1 below the corner is already shaded.",
+    N: 4,
+    numbers: [1, 4, 3, 4,
+              1, 3, 4, 1,
+              3, 4, 1, 2,
+              4, 1, 2, 3],
+    givens: "....S...........",
+    answer: "...SS....S......",
+    task: "Fix the two 4s in the top row and the two in the second column, without walling in the corner 1.",
+    wrong: "Not quite: the corner 1 needs a lit neighbour to stay connected. Leave the 4 beside it lit.",
+    done: "That's all three rules. Every puzzle has one answer, reachable by logic alone.",
+  },
+];
+
+/**
+ * Where a lesson stands after a tap. marks: the board's marks (0 unmarked, 1 shaded,
+ * 2 circled). step: the lesson-1 step being worked on (ignored for other lessons).
+ * Returns { step, solved, wrong } — wrong = a move off the answer (the UI waits a moment
+ * before it says "not quite").
+ */
+function tutorialProgress(lesson, step, marks) {
+  const CODE = { ".": 0, S: 1, O: 2 };
+  const same = (s) => s.split("").every((ch, i) => marks[i] === CODE[ch]);
+  if (lesson.steps) {
+    const s = step || 0;
+    if (s >= lesson.steps.length) return { step: s, solved: true, wrong: false };
+    if (same(lesson.steps[s].marks)) {
+      return { step: s + 1, solved: s + 1 === lesson.steps.length, wrong: false };
+    }
+    const prev = s === 0 ? lesson.givens : lesson.steps[s - 1].marks;
+    return { step: s, solved: false, wrong: !same(prev) };
+  }
+  let solved = true, wrong = false;
+  for (let i = 0; i < lesson.answer.length; i++) {
+    const want = lesson.answer[i], m = marks[i];
+    if (want === "S") {
+      if (m !== 1) solved = false;
+      if (m === 2) wrong = true;
+    } else {
+      if (m === 1) { wrong = true; solved = false; }
+      if (want === "O" && m !== 2) solved = false;
+    }
+  }
+  return { step: step || 0, solved: solved && !wrong, wrong: wrong };
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     LEVELS_PER_BATCH, SECTION_SIZE, LINGER_MOVES,
     computeStars, mergeResult, isUnlocked, nextPlayable, tierSummary,
     newMistakeTracker, trackMove, flagMistake, migrateSave,
+    TUTORIAL_LESSONS, tutorialProgress,
   };
 }

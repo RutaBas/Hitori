@@ -205,14 +205,16 @@
       </div>
     </section>
 
-    <!-- PLACEHOLDER for screens that later tasks build (How to play). -->
-    <section id="screen-soon" class="screen">
-      <header class="topbar">
-        <button class="back-link soon-back">‹ Home</button>
-      </header>
-      <div class="soon-body">
-        <h2 class="soon-title">Coming soon</h2>
-        <p class="soon-text">This part of the game arrives in a later update.</p>
+    <!-- TUTORIAL: four lessons on tiny boards (TUTORIAL_LESSONS in progress.js), each
+         solved before Next opens; progress dots, Back/Next, skip (renderTutorial). -->
+    <section id="screen-tutorial" class="screen screen--scroll">
+      <div class="page-inner">
+        <header class="screen-head">
+          <button class="back-link tut-exit">‹ Home</button>
+          <div class="tut-dots" id="tut-dots"></div>
+          <span class="screen-head-end" aria-hidden="true"></span>
+        </header>
+        <div id="tut-body" class="tut-body"></div>
       </div>
     </section>
 

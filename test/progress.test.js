@@ -71,5 +71,101 @@ check("tierSummary", s.solved === 3 && s.stars === 6 && s.maxStars === 300 &&
   s.starCounts[1] === 1 && s.starCounts[2] === 1 && s.starCounts[3] === 1 && s.bestMs === 100);
 check("tierSummary empty", P.tierSummary(null, 100).solved === 0 && P.tierSummary({}, 100).bestMs === null);
 
+// ---- tutorial lessons (Task 15) ----------------------------------------------
+const Rl = require(path.join(__dirname, "..", "js", "rules.js"));
+const MARK = { ".": 0, "S": 1, "O": 2 };
+const marksOf = (s) => s.split("").map((ch) => MARK[ch]);
+const L = P.TUTORIAL_LESSONS || [];
+check("tutorial: 4 lessons", L.length === 4);
+
+/** Every shading of the cells that have a same-number partner in their row or column
+ *  (the only cells a Hitori ever shades), keeping the given shades, that obeys all rules. */
+function candidateSolutions(lesson) {
+  const N = lesson.N, nums = lesson.numbers, cand = [];
+  for (let i = 0; i < N * N; i++) {
+    const r = (i / N) | 0, c = i % N;
+    let dup = false;
+    for (let k = 0; k < N; k++) {
+      if (k !== c && nums[r * N + k] === nums[i]) dup = true;
+      if (k !== r && nums[k * N + c] === nums[i]) dup = true;
+    }
+    if (dup && lesson.givens[i] !== "O") cand.push(i);
+  }
+  const out = [];
+  for (let s = 0; s < (1 << cand.length); s++) {
+    const m = new Int8Array(N * N);
+    cand.forEach((i, b) => { if (s >> b & 1) m[i] = 1; });
+    if (lesson.givens.split("").some((ch, i) => ch === "S" && !m[i])) continue;
+    if (Rl.isValidSolution(nums, m, N)) out.push(Array.from(m).join(""));
+  }
+  return out;
+}
+
+L.forEach((lesson, k) => {
+  const tag = "tutorial lesson " + (k + 1) + ": ";
+  const N = lesson.N, cells = N * N;
+  check(tag + "has title, text, task and a not-quite message",
+    ["title", "text", "task", "wrong"].every((f) => typeof lesson[f] === "string" && lesson[f].length > 0));
+  check(tag + "tiny board (3x3 to 4x4)", N >= 3 && N <= 4 && lesson.numbers.length === cells &&
+    lesson.numbers.every((v) => Number.isInteger(v) && v >= 1 && v <= N));
+  check(tag + "givens and answer are mark strings for the board",
+    [lesson.givens, lesson.answer].every((s) => typeof s === "string" && s.length === cells && /^[.SO]+$/.test(s)));
+  const shaded = lesson.answer.split("").map((ch) => (ch === "S" ? 1 : 0));
+  check(tag + "answer obeys all three rules", Rl.isValidSolution(lesson.numbers, shaded, N));
+  check(tag + "givens agree with the answer", lesson.givens.split("").every((ch, i) =>
+    ch === "." || (ch === "S" ? lesson.answer[i] === "S" : lesson.answer[i] !== "S")));
+  const sols = candidateSolutions(lesson);
+  check(tag + "answer is the only solution from the givens",
+    sols.length === 1 && sols[0] === shaded.join(""));
+  const start = P.tutorialProgress(lesson, 0, marksOf(lesson.givens));
+  check(tag + "the givens alone don't finish it (the player must move)", !start.solved && !start.wrong);
+});
+
+// Lesson 1 teaches the tap cycle: shade, circle, clear, one tap each on the same cell.
+const L1 = L[0];
+if (L1) {
+  check("lesson 1: three steps", Array.isArray(L1.steps) && L1.steps.length === 3 &&
+    L1.steps.every((s) => typeof s.task === "string" && s.task && s.marks.length === L1.N * L1.N));
+  let prev = marksOf(L1.givens), cyc = true, cell = null;
+  L1.steps.forEach((s) => {
+    const m = marksOf(s.marks), diff = [];
+    m.forEach((v, i) => { if (v !== prev[i]) diff.push(i); });
+    if (diff.length !== 1 || m[diff[0]] !== (prev[diff[0]] + 1) % 3) cyc = false;
+    if (cell === null) cell = diff[0]; else if (diff[0] !== cell) cyc = false;
+    prev = m;
+  });
+  check("lesson 1: each step is one tap of the same cell (unmarked -> shaded -> circled -> unmarked)", cyc);
+  check("lesson 1: the last step is the answer", L1.steps[2].marks === L1.answer);
+  check("lesson 1: first task line is step 1's", L1.task === L1.steps[0].task);
+
+  // Walk it with tutorialProgress.
+  const tp = P.tutorialProgress;
+  let r = tp(L1, 0, marksOf(L1.steps[0].marks));
+  check("progress: step 1 met -> step 2", r.step === 1 && !r.solved && !r.wrong);
+  r = tp(L1, 1, marksOf(L1.steps[0].marks).map((v, i) => (i === (cell + 1) % 9 ? 1 : v)));
+  check("progress: a stray tap is wrong and stays on the step", r.step === 1 && r.wrong && !r.solved);
+  r = tp(L1, 1, marksOf(L1.steps[1].marks));
+  check("progress: step 2 met -> step 3", r.step === 2 && !r.solved);
+  r = tp(L1, 2, marksOf(L1.steps[2].marks));
+  check("progress: last step -> solved", r.step === 3 && r.solved && !r.wrong);
+}
+
+// Rule lessons: the shades must match; circles are free on lit cells.
+const L2 = L[1];
+if (L2) {
+  const tp = P.tutorialProgress, ans = marksOf(L2.answer);
+  check("progress: the answer solves it", tp(L2, 0, ans).solved);
+  const lit = ans.findIndex((v, i) => v === 0 && L2.givens[i] === ".");
+  const withCircle = ans.slice(); withCircle[lit] = 2;
+  check("progress: an extra circle on a lit cell still solves it", tp(L2, 0, withCircle).solved);
+  const extra = ans.slice(); extra[lit] = 1;
+  const rx = tp(L2, 0, extra);
+  check("progress: an extra shade is wrong, not solved", rx.wrong && !rx.solved);
+  const target = ans.indexOf(1);
+  const circ = marksOf(L2.givens); circ[target] = 2;
+  check("progress: circling the cell that must be shaded is wrong", tp(L2, 0, circ).wrong);
+  check("progress: nothing yet is neither", (() => { const z = tp(L2, 0, marksOf(L2.givens)); return !z.wrong && !z.solved; })());
+}
+
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

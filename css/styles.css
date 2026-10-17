@@ -216,8 +216,7 @@ body {
   cursor: pointer;
 }
 
-/* ============================ PLACEHOLDER SCREEN ======================== */
-.topbar { display: flex; align-items: center; min-height: 44px; margin-bottom: var(--space-4); }
+/* ============================ BACK LINK ================================ */
 .back-link {
   min-height: 44px;
   padding: 0 var(--space-1);
@@ -228,12 +227,91 @@ body {
   font-size: 14px;
   cursor: pointer;
 }
-.soon-body { width: 100%; max-width: 460px; margin: 0 auto; text-align: center; padding-top: var(--space-5); }
-.soon-title {
-  font-weight: 500; font-size: 18px; letter-spacing: 0.16em; text-transform: uppercase;
-  color: var(--sodium-light); margin-bottom: var(--space-3);
+
+/* ============================ TUTORIAL ================================= */
+/* Tiny lesson boards with the real cell look (.cell, .cell--shaded, .cell--circled);
+   cells are at least 56px, so every tap target clears 44px. */
+.tut-dots { display: flex; justify-content: center; gap: var(--space-2); }
+.tut-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1px solid var(--outline);
+  background: transparent;
+  transition: var(--transition-default);
 }
-.soon-text { font-weight: 300; font-size: 14px; color: var(--muted); }
+.tut-dot.past { background: var(--outline); }
+.tut-dot.on { background: var(--sodium-light); border-color: var(--sodium-light); }
+.tut-body { display: flex; flex-direction: column; align-items: center; padding-bottom: var(--space-3); }
+.tut-title {
+  font-weight: 500; font-size: 18px; letter-spacing: 0.06em;
+  color: var(--sodium-light); text-align: center;
+  margin: var(--space-2) 0 var(--space-2);
+}
+.tut-text {
+  width: 100%;
+  font-weight: 300; font-size: 14px; line-height: 1.55;
+  color: var(--lit); text-align: center;
+  margin-bottom: var(--space-4);
+}
+.tut-text b { font-weight: 500; color: var(--sodium-light); }
+.tut-board {
+  --tut-cell: 64px;
+  display: grid;
+  grid-template-columns: repeat(var(--tn), var(--tut-cell));
+  grid-auto-rows: var(--tut-cell);
+  gap: 3px;
+  font-size: calc(var(--tut-cell) * 0.46);
+}
+.tut-board--n4 { --tut-cell: 58px; }
+.tut-board .cell { user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.tut-board .cell.tut-given { cursor: default; }
+.tut-task {
+  width: 100%;
+  min-height: 64px;
+  margin-top: var(--space-4);
+  padding: 10px 12px;
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  background: var(--band-far);
+  font-weight: 400; font-size: 13px; line-height: 1.5;
+  color: var(--lit); text-align: center;
+  display: flex; align-items: center; justify-content: center;
+}
+.tut-task.good { border-color: var(--sodium-light); color: var(--sodium-light); }
+.tut-task.oops { border-style: dashed; border-color: var(--sodium-light); }
+.tut-controls { display: flex; gap: var(--space-2); width: 100%; margin-top: var(--space-4); }
+.tut-controls .btn { min-height: 52px; border-radius: 12px; letter-spacing: 0.06em; padding: 4px var(--space-2); line-height: 1.25; }
+.tut-controls [data-tut="back"] { flex: 0 0 34%; }
+.tut-controls .btn--secondary { background: var(--night); }   /* opaque over the skyline */
+.tut-controls .btn:disabled { opacity: 0.4; cursor: default; }
+.tut-skip {
+  min-height: 44px;
+  margin-top: var(--space-2);
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+@media (max-width: 360px) {
+  .tut-board { --tut-cell: 58px; }
+  .tut-board--n4 { --tut-cell: 56px; }
+  .tut-text { margin-bottom: var(--space-3); }
+  .tut-task, .tut-controls { margin-top: var(--space-3); }
+  .tut-controls .btn { font-size: 13px; letter-spacing: 0.02em; }
+}
+/* Short phones: keep the buttons near the fold (cells stay well over 44px). */
+@media (max-height: 700px) {
+  .tut-title { margin: 0 0 var(--space-1); }
+  .tut-text { font-size: 13px; margin-bottom: var(--space-3); }
+  .tut-board--n3 { --tut-cell: 56px; }
+  .tut-board--n4 { --tut-cell: 50px; }
+  .tut-task { min-height: 0; margin-top: var(--space-3); }
+  .tut-controls { margin-top: var(--space-3); }
+}
 
 /* ============================ LEVELS =================================== */
 /* Shared screen header: back link · centred title · a spacer the back link's width. */
