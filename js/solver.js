@@ -382,6 +382,7 @@ if (typeof module !== "undefined") {
     partialConflict,
     applyT1, applyT2, applyT3, applyT4, applyT5, applyT6,
     shadedMaskOf,
+    linesOf,
     neighborsOf,
     hintNext,
     TECHNIQUE_NAMES,

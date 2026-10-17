@@ -1,5 +1,5 @@
 /*
- * explain.test.js — explained deductions T1–T4 + clash detection. Run with:
+ * explain.test.js — explained deductions T1–T6, traced chains, pickShortest + clash detection. Run with:
  *   node test/explain.test.js
  *
  * Fixtures: one tiny hand-made board per rule id and per clash rule.
@@ -132,11 +132,83 @@ try {
       E.findClash(board(3, LATIN3, [[0, WHITE], [1, BLACK], [3, BLACK]]).cells, Int8Array.from(LATIN3.flat()), 3) === null);
   }
 
+  // --- traceDeduce ---------------------------------------------------------
+  {
+    // Sandwich 1 ? 1 with the middle assumed shaded: its neighbours light up, giving row 1
+    // two lit 1s.
+    const b = board(3, [[1, 2, 1], [2, 3, 4], [3, 4, 2]], [[1, BLACK]]);
+    const tr = E.traceDeduce(b.cells, b.numbers, 3, 2);
+    check("traceDeduce ends in the duplicate clash", tr.clash && tr.clash.rule === "duplicate" && sameArr(tr.clash.cells, [0, 2]));
+    check("traceDeduce steps are one cell each, cheapest first, with text",
+      tr.steps.length === 3 && tr.steps.every((s) => s.tier === 2 && s.rule === "neighbour-of-shaded" && s.text.length > 0));
+    check("traceDeduce mutated cells", b.cells[0] === WHITE && b.cells[2] === WHITE && b.cells[4] === WHITE);
+    check("traceDeduce state ends in that clash", sameArr(E.findClash(b.cells, b.numbers, 3).cells, tr.clash.cells));
+  }
+  {
+    const b = board(3, LATIN3, [[4, BLACK]]);
+    const tr = E.traceDeduce(b.cells, b.numbers, 3, 1);
+    check("traceDeduce respects maxTier (no T2 steps at maxTier 1)", tr.steps.length === 0 && tr.clash === null);
+  }
+
+  // --- pickShortest (synthetic entries) ------------------------------------
+  {
+    const mk = (i, len, evidence) => ({ i, value: WHITE, evidence: evidence || [i], chain: new Array(len).fill({}) });
+    const a = mk(40, 5), b2 = mk(3, 3), c = mk(7, 3), d = mk(99, 3);
+    check("pickShortest: shortest chain wins", E.pickShortest([a, b2], null, 10) === b2);
+    check("pickShortest: tie -> lowest i without lastTap", E.pickShortest([c, d, b2], null, 10) === b2);
+    check("pickShortest: tie -> nearest to lastTap", E.pickShortest([b2, c, d], 98, 10) === d);
+    check("pickShortest: length beats distance", E.pickShortest([a, b2], 40, 10) === b2);
+    check("pickShortest: distance uses evidence too", E.pickShortest([mk(0, 2, [0, 55]), mk(9, 2)], 56, 10).i === 0);
+  }
+
   // --- soundness on generated puzzles --------------------------------------
   const TIER_FNS = [null, S.applyT1, S.applyT2, S.applyT3, S.applyT4, S.applyT5, S.applyT6];
   const PER_TIER = 30;
   let states = 0, entries = 0;
   const bad = { value: 0, subset: 0, missing: 0, form: 0, clash: 0, gen: 0 };
+  // T5/T6 chains (checked on Secluded + Solitary walks, at states where T6 is the cheapest tier)
+  const t6 = { states: 0, entries: 0, maxMs: 0, maxLen: 0, lens: [], inner5: {} };
+  const bad6 = { clash: 0, replay: 0, text: 0, value: 0, form: 0, missing: 0, t5: 0 };
+  let shortestFixture = null;
+  // Every step (recursively, through nested chains) must carry its own reason.
+  const allStepsHaveText = (chain) => chain.every((s) =>
+    typeof s.text === "string" && s.text.length > 0 && (!s.chain || allStepsHaveText(s.chain)));
+  const checkT6 = (cells, numbers, N, solution) => {
+    t6.states++;
+    const copy6 = cells.slice();
+    S.applyT6(copy6, numbers, N);
+    // Timing (10x10 only): best of 3 runs per state, so a GC pause doesn't count as the hint's cost.
+    let ex, ms = Infinity;
+    for (let run = 0; run < (N === 10 ? 3 : 1); run++) {
+      const t0 = process.hrtime.bigint();
+      ex = E.explainTier(cells, numbers, N, 6);
+      ms = Math.min(ms, Number(process.hrtime.bigint() - t0) / 1e6);
+    }
+    if (N === 10) t6.maxMs = Math.max(t6.maxMs, ms);
+    let changed = false;
+    for (let i = 0; i < cells.length; i++) if (cells[i] === UNKNOWN && copy6[i] !== UNKNOWN) changed = true;
+    if (changed && ex.length === 0) bad6.missing++;
+    for (const e of ex) {
+      t6.entries++; t6.lens.push(e.chain.length);
+      for (const st of e.chain) if (st.tier === 5) t6.inner5[st.rule] = (t6.inner5[st.rule] || 0) + 1;
+      t6.maxLen = Math.max(t6.maxLen, e.chain.length);
+      if (!e.clash) { bad6.clash++; continue; }
+      if (e.value !== (solution[e.i] ? BLACK : WHITE)) bad6.value++;
+      const a = e.chain[0];
+      if (e.rule !== "contradiction" || e.tier !== 6 || e.technique !== S.TECHNIQUE_NAMES[6] ||
+        !a || a.rule !== "assume" || a.i !== e.i || a.value === e.value || a.value === UNKNOWN ||
+        !(e.evidence.length > 0) || !(e.short.length > 0)) bad6.form++;
+      if (!allStepsHaveText(e.chain) || !(e.text.length > 0) || !(e.clash.text.length > 0)) bad6.text++;
+      const replay = cells.slice();
+      for (const s of e.chain) replay[s.i] = s.value;
+      const c = E.findClash(replay, numbers, N);
+      if (!c || c.rule !== e.clash.rule || !sameArr(c.cells, e.clash.cells)) bad6.replay++;
+    }
+    const lens = ex.map((e) => e.chain.length);
+    if (!shortestFixture && ex.length >= 2 && Math.min(...lens) < Math.max(...lens)) {
+      shortestFixture = { ex, N, min: Math.min(...lens) };
+    }
+  };
   for (let tier = 1; tier <= 6; tier++) {
     for (let k = 0; k < PER_TIER; k++) {
       const p = G.generateTier(tier, { rand: G.mulberry32(G.hashString("explain-" + tier + "-" + k)) });
@@ -164,6 +236,14 @@ try {
         // intermediate states get checked
         let stepped = false;
         for (let t = 1; t <= 6 && !stepped; t++) {
+          if (t === 5) {
+            // T5 entries (rare at top level): sound and with a two-branch chain
+            for (const e of E.explainTier(cells, numbers, N, 5)) {
+              if (e.value !== (solution[e.i] ? BLACK : WHITE) || e.rule !== "both-ways" ||
+                e.chain.filter((s) => s.rule === "assume").length !== 2 || !allStepsHaveText(e.chain)) bad6.t5++;
+            }
+          }
+          if (t === 6 && tier >= 5) checkT6(cells, numbers, N, solution);
           const copy = cells.slice();
           TIER_FNS[t](copy, numbers, N);
           for (let i = 0; i < cells.length; i++) {
@@ -181,6 +261,23 @@ try {
   check("soundness: explainTier non-empty whenever applyT<t> changes something", bad.missing === 0);
   check("soundness: every explanation well formed", bad.form === 0);
   check("soundness: no clash on solution-consistent states", bad.clash === 0);
+
+  const lens = t6.lens.sort((a, b) => a - b);
+  console.log(`  (T6: ${t6.states} states, ${t6.entries} entries, chain length median ${lens[lens.length >> 1]}, max ${t6.maxLen}; ` +
+    `10x10 explainTier(6) max ${t6.maxMs.toFixed(1)} ms in this long-running process; inner T5 steps ${JSON.stringify(t6.inner5)})`);
+  check("T6: some T6 states were checked", t6.states > 0 && t6.entries > 0);
+  check("T6: every entry has a clash", bad6.clash === 0);
+  check("T6: replaying the chain reproduces the clash", bad6.replay === 0);
+  check("T6: every chain step has its own text", bad6.text === 0);
+  check("T6: every value matches the solution", bad6.value === 0);
+  check("T6: entries well formed (rule, assume record, opposite value)", bad6.form === 0);
+  check("T6: explainTier(6) non-empty whenever applyT6 changes something", bad6.missing === 0);
+  check("T5: entries sound and two-branched", bad6.t5 === 0);
+  check("pickShortest: a real state with two T6 chains of different length was found", shortestFixture !== null);
+  if (shortestFixture) {
+    const p = E.pickShortest(shortestFixture.ex, null, shortestFixture.N);
+    check("pickShortest: picks the shorter real T6 chain", p.chain.length === shortestFixture.min);
+  }
 } catch (e) {
   check("no exception: " + e.message, false);
   console.log(e.stack);
