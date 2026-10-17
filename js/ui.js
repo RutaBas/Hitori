@@ -28,6 +28,8 @@
     levels: "hitori.levels",
     daily: "hitori.daily",
     tutorialDone: "hitori.tutorialDone",
+    techSeen: "hitori.techSeen",   // { "<technique 3|4|6>": true } once its intro card was read
+    activity: "hitori.activity",   // per-day log (stats.js recordActivity)
   };
 
   var App = {
@@ -53,6 +55,10 @@
     settings: null,
     hint: null,           // the open staged hint (see renderHint), or null
     hintHeld: null,       // the hint put aside while paused; resumeGame shows it again
+    levelTier: null,      // the tier whose level grid is open / was last open
+    pendingLevel: null,   // { t, n } waiting behind the technique intro card
+    levelResult: null,    // the last level win: { stars, ms, best, prevBest, isLast }
+    winTimers: [],        // star-reveal timeouts on the level win card
     winOrder: [],         // skyline windows, nearest-first (city-goes-to-sleep order)
     darkCount: 0,         // how many windows are currently darkened
     splashTimers: [],
@@ -199,6 +205,7 @@
   // ---- screens (crossfade; skyline stays) + the generic overlay -------------
   /** Show section#screen-<name>; every other section.screen fades out. */
   function showScreen(name) {
+    if (name !== "play") leaveWin();
     var screens = document.querySelectorAll("section.screen");
     for (var k = 0; k < screens.length; k++) {
       screens[k].classList.toggle("screen--active", screens[k].id === "screen-" + name);
@@ -214,7 +221,7 @@
     document.getElementById("overlay").classList.remove("is-visible");
   }
 
-  /** Stand-in screen for parts built in later tasks (Levels, Daily, Stats, How to play). */
+  /** Stand-in screen for parts built in later tasks (Daily, Stats, How to play). */
   function showSoon(title) {
     $(".soon-title").textContent = title;
     hideOverlay();
@@ -323,7 +330,7 @@
     switch (nav.getAttribute("data-nav")) {
       case "continue": resumeSaved(); break;
       case "daily": showSoon("Daily puzzle"); break;   // Task 13
-      case "levels": showSoon("Levels"); break;        // Task 12
+      case "levels": showLevels(); break;
       case "stats": showSoon("Stats"); break;          // Task 14
       case "howto": showSoon("How to play"); break;    // Task 15
       case "rules": openRules(); break;
@@ -344,6 +351,192 @@
       name.textContent = prev;
       btn.classList.remove("is-working");
     }, 20);
+  }
+
+  // ==========================================================================
+  // LEVELS (spec §1 "Levels overview", "A tier's levels"; §3)
+  // ==========================================================================
+  // Progress lives in hitori.levels { "<tier>": { "<n>": { stars, bestMs, noHint } } }.
+  // Everything on these screens is built from levelCount(t), so batches added to
+  // js/levels.js show up with no code change (sections of SECTION_SIZE just continue).
+  var LOCK_SVG = '<svg class="lock" viewBox="0 0 16 16" aria-hidden="true">' +
+    '<path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/>' +
+    '<rect x="3" y="7" width="10" height="7.5" rx="1.6" fill="currentColor"/></svg>';
+
+  function levelsProgress() { var p = readJSON(LS.levels, {}); return p && typeof p === "object" ? p : {}; }
+  function techName(t) { return TECHNIQUE_NAMES[TIERS[t].technique]; }
+  function starText(n) { return "★★★".slice(0, n) + "☆☆☆".slice(0, 3 - n); }
+  function barPct(solved, count) { return solved ? Math.max(2, Math.round((100 * solved) / count)) : 0; }
+
+  /** Levels overview: six cards, all open from the start. */
+  function showLevels() {
+    hideOverlay();
+    var lp = levelsProgress(), html = "";
+    for (var t = 1; t <= 6; t++) {
+      var count = levelCount(t), sum = tierSummary(lp[t], count);
+      html += '<button class="lv-card" data-lvtier="' + t + '">' +
+        '<span class="lv-card-top"><span class="lv-card-name">' + tierName(t) + "</span>" +
+        '<span class="lv-card-size">' + sizeLabel(TIERS[t].size) + "</span></span>" +
+        '<span class="lv-card-sub">' + sum.solved + " / " + count + " solved · ★ " + sum.stars + " / " + sum.maxStars + "</span>" +
+        '<span class="lv-card-tech">needs ' + techName(t) + "</span>" +
+        '<span class="lv-bar2" aria-hidden="true"><span style="width:' + barPct(sum.solved, count) + '%"></span></span>' +
+        "</button>";
+    }
+    document.getElementById("levels-list").innerHTML = html;
+    showScreen("levels");
+  }
+
+  /** The level a tier's pinned button plays: the next unsolved one, or level 1 once all are solved. */
+  function tierCta(t, lp) {
+    var next = nextPlayable(lp[t], levelCount(t));
+    return next ? { n: next, replay: false } : { n: 1, replay: true };
+  }
+  /** The in-progress level save for tier t, level n, or null. */
+  function levelSaveFor(t, n) {
+    var s = loadSave();
+    return s && s.mode === "level" && s.tier === t && s.level === n ? s : null;
+  }
+
+  /** A tier's levels: summary card, the scrolling grid, the pinned Play button. */
+  function showTier(t) {
+    hideOverlay();
+    App.levelTier = t;
+    var lp = levelsProgress(), tp = lp[t] || {};
+    var count = levelCount(t), sum = tierSummary(tp, count), cta = tierCta(t, lp);
+    $(".tier-title").textContent = tierName(t) + " · " + sizeLabel(TIERS[t].size);
+    document.getElementById("tier-sum").innerHTML =
+      '<div class="tier-sum-text"><div class="tier-sum-main">' + sum.solved + " / " + count + " solved</div>" +
+      '<div class="tier-sum-sub">★ ' + sum.stars + " of " + sum.maxStars + " · needs " + techName(t) + "</div></div>" +
+      '<span class="lv-bar2 tier-sum-bar" aria-hidden="true"><span style="width:' + barPct(sum.solved, count) + '%"></span></span>';
+
+    var html = "";
+    for (var a = 1; a <= count; a += SECTION_SIZE) {
+      var b = Math.min(count, a + SECTION_SIZE - 1), secStars = 0, cells = "";
+      for (var n = a; n <= b; n++) {
+        var r = tp[n];
+        if (r) {
+          secStars += r.stars || 0;
+          cells += '<button class="lv-btn is-solved" data-level="' + n + '" aria-label="Level ' + n + ", " +
+            (r.stars || 0) + ' of 3 stars">' + n + '<span class="lv-stars">' + starText(r.stars || 0) + "</span></button>";
+        } else if (isUnlocked(tp, n)) {
+          cells += '<button class="lv-btn is-next" data-level="' + n + '" aria-label="Level ' + n + ', next up">' + n + "</button>";
+        } else {
+          cells += '<button class="lv-btn is-locked" disabled aria-label="Level ' + n + ', locked">' + LOCK_SVG + "</button>";
+        }
+      }
+      var open = isUnlocked(tp, a);
+      html += '<div class="lv-sec"><span>Levels ' + a + "–" + b + "</span><span>" +
+        (open ? "★ " + secStars : LOCK_SVG) + '</span></div><div class="lv-grid">' + cells + "</div>";
+    }
+    var scroll = document.getElementById("lv-scroll");
+    scroll.innerHTML = html;
+
+    var inProgress = levelSaveFor(t, cta.n);
+    $(".lv-cta-main").textContent = (cta.replay ? "Replay level " : "Play level ") + cta.n;
+    $(".lv-cta-sub").textContent = inProgress ? "in progress · " + fmtTime(inProgress.elapsedMs || 0)
+      : cta.replay ? "all " + count + " solved · " + tierName(t) : "next up · " + tierName(t);
+    document.getElementById("lv-cta").setAttribute("data-level", cta.n);
+
+    showScreen("tier");
+    // Bring the next-up level into view (centred) when it sits below the fold.
+    scroll.scrollTop = 0;
+    var target = scroll.querySelector('.lv-btn[data-level="' + cta.n + '"]');
+    if (target && !cta.replay) {
+      var off = target.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+      if (off + target.offsetHeight > scroll.clientHeight) scroll.scrollTop = off - scroll.clientHeight / 2;
+    }
+    updateScrollFade();
+  }
+  /** The fade at the grid's bottom edge goes once the end is reached, so the last row reads fully. */
+  function updateScrollFade() {
+    var s = document.getElementById("lv-scroll");
+    s.classList.toggle("is-end", s.scrollTop + s.clientHeight >= s.scrollHeight - 2);
+  }
+
+  function onLevelsClick(ev) {
+    var card = ev.target.closest(".lv-card[data-lvtier]");
+    if (card) showTier(parseInt(card.getAttribute("data-lvtier"), 10));
+  }
+  function onTierGridClick(ev) {
+    var btn = ev.target.closest(".lv-btn[data-level]");
+    if (btn && !btn.disabled) playLevel(App.levelTier, parseInt(btn.getAttribute("data-level"), 10));
+  }
+
+  function techSeen() { var s = readJSON(LS.techSeen, {}); return s && typeof s === "object" ? s : {}; }
+
+  /**
+   * Open level n of tier t: resume it when it is the game in progress, otherwise show the
+   * technique intro first (once per technique), then start it fresh.
+   */
+  function playLevel(t, n) {
+    if (!(t >= 1 && t <= 6) || !(n >= 1 && n <= levelCount(t)) || !isUnlocked(levelsProgress()[t], n)) return;
+    var saved = levelSaveFor(t, n);
+    if (saved) { startGame(saved); return; }
+    var tech = TIERS[t].technique;
+    if (!techSeen()[tech] && TECHNIQUE_INTROS[tech]) { showTechIntro(t, n, tech); return; }
+    startLevel(t, n);
+  }
+
+  function showTechIntro(t, n, tech) {
+    var it = TECHNIQUE_INTROS[tech];
+    var uses = [];
+    for (var k = 1; k <= 6; k++) if (TIERS[k].technique === tech) uses.push(tierName(k));
+    App.pendingLevel = { t: t, n: n };
+    showOverlay(
+      '<div class="sheet-head"><span class="intro-kicker">New technique · ' + esc(it.technique) + "</span>" +
+      '<button class="sheet-x" data-close aria-label="Close">✕</button></div>' +
+      '<div class="intro-title">' + esc(it.title) + "</div>" +
+      '<p class="sheet-text">' + esc(it.text) + "</p>" +
+      '<p class="intro-tip">' + esc(it.tip) + " Every " + uses.join(" and ") + " level needs it.</p>" +
+      '<div class="sheet-buttons">' +
+      '<button class="btn btn--secondary" data-close>Not now</button>' +
+      '<button class="btn btn--primary" data-act="intro-start">Start level ' + n + "</button></div>");
+  }
+  /** Intro read: remember the technique and start the level that was waiting. */
+  function startPendingLevel() {
+    var p = App.pendingLevel;
+    App.pendingLevel = null;
+    if (!p) { hideOverlay(); return; }
+    if (!startLevel(p.t, p.n)) return;      // a level that won't open doesn't use up the intro
+    var seen = techSeen();
+    seen[TIERS[p.t].technique] = true;
+    writeJSON(LS.techSeen, seen);
+  }
+
+  /** A fresh attempt at level n: numbers from levels.js, the solution from the solver.
+   *  Returns false (and says so on screen) when the level's data doesn't solve. */
+  function startLevel(t, n) {
+    var N = TIERS[t].size, numbers = null, res = null;
+    try {
+      numbers = levelNumbers(t, n);
+      if (numbers.length === N * N) res = solve(numbers, N);
+    } catch (e) { res = null; }
+    if (!res || !res.solved) { showLevelError(t, n); return false; }
+    startGame({ mode: "level", tier: t, N: N, numbers: Array.from(numbers),
+      solution: Array.from(shadedMaskOf(res.cells)), level: n });
+    return true;
+  }
+  /** Corrupt level data: say so instead of crashing; Back returns to the tier's grid. */
+  function showLevelError(t, n) {
+    App.levelTier = t;
+    leaveWin();             // from a win card's Next level: the sheet must not sit under it
+    showOverlay(
+      '<div class="sheet-head"><span class="sheet-title">Level ' + n + " won't open</span></div>" +
+      '<p class="sheet-text">This level’s puzzle data looks damaged, so it can’t be played. Your progress is safe.</p>' +
+      '<div class="sheet-buttons"><button class="btn btn--primary" data-act="level-back">Back</button></div>');
+  }
+
+  /** Level win: stars into hitori.levels (never hitori.stats) and a solve in the activity log. */
+  function recordLevelWin() {
+    var ms = currentMs(), mistakes = (App.tracker && App.tracker.mistakes) || 0;
+    var stars = computeStars(App.hintsUsed, mistakes);
+    var lp = levelsProgress(), tp = lp[App.tier] || (lp[App.tier] = {});
+    var old = tp[App.level] || null;
+    tp[App.level] = mergeResult(old, stars, ms, App.hintsUsed === 0);
+    writeJSON(LS.levels, lp);
+    writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), dateKey(new Date()), "level", App.hintsUsed));
+    App.levelResult = { stars: stars, ms: ms, best: tp[App.level].bestMs, prevBest: old ? old.bestMs : null,
+      isLast: App.level >= levelCount(App.tier) };
   }
 
   // ---- Rules + Settings overlays -------------------------------------------
@@ -433,7 +626,11 @@
     if (!resume) {
       recordAbandon(loadSave());              // overwriting an unsolved free game breaks its streak
       if (cfg.mode === "free") recordStart(cfg.tier);
+      if (cfg.mode === "level") {
+        writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), dateKey(new Date()), "level", 0, { started: true }));
+      }
     }
+    clearWinTimers();
     clearHint();
     App.mode = cfg.mode || "free";
     App.tier = cfg.tier;
@@ -647,7 +844,7 @@
     saveGame();
   }
 
-  // Free play only: another puzzle of the same tier. Level/daily "next" flows are Tasks 12/13.
+  // Free play only: another puzzle of the same tier (levels use the win card's Next level).
   function newPuzzle() {
     closeMenu();
     if (App.mode === "free") startTier(App.tier); else quitToMenu();
@@ -937,7 +1134,8 @@
     if (!isSolved()) return;
     App.won = true;
     stopTimer();
-    if (App.mode === "free") recordWin();   // level/daily records: Tasks 12/13
+    if (App.mode === "free") recordWin();   // daily records: Task 13
+    if (App.mode === "level") recordLevelWin();
     clearSave();
     runWinAnimation();
   }
@@ -996,9 +1194,43 @@
       var s = statsFor(App.tier);
       extra = "best " + (s.bestMs ? fmtTime(s.bestMs) : "—") + " · streak " + (s.currentStreak || 0);
     }
+    var level = App.mode === "level" && App.levelResult;
+    var starsEl = $(".win-stars");
+    starsEl.innerHTML = "";
+    if (level) {
+      var R = App.levelResult;
+      extra = R.prevBest && R.ms < R.prevBest ? "new best · was " + fmtTime(R.prevBest)
+        : R.prevBest ? "best " + fmtTime(R.best) : "first solve";
+      // Solved · no hints · no mistakes; revealed one by one, the earned ones lit.
+      var earned = [true, App.hintsUsed === 0, ((App.tracker && App.tracker.mistakes) || 0) === 0];
+      var captions = ["solved", "no hints", "no mistakes"];
+      for (var k = 0; k < 3; k++) {
+        starsEl.innerHTML += '<span class="win-star' + (earned[k] ? " is-earned" : "") + '">' +
+          '<span class="win-star-glyph">' + (earned[k] ? "★" : "☆") + "</span>" +
+          '<span class="win-star-cap">' + captions[k] + "</span></span>";
+      }
+      starsEl.setAttribute("aria-label", R.stars + " of 3 stars");
+      var nodes = starsEl.querySelectorAll(".win-star");
+      Array.prototype.forEach.call(nodes, function (node, k) {
+        App.winTimers.push(setTimeout(function () { node.classList.add("is-shown"); }, 250 + k * 320));
+      });
+    }
     document.querySelector(".win-extra").textContent = extra;
+    $(".win-panel").classList.toggle("win--level", !!level);
     $(".win-again").style.display = App.mode === "free" ? "" : "none";
+    $(".win-share").style.display = level ? "none" : "";
+    $(".win-menu").style.display = level ? "none" : "";
+    $(".win-next").style.display = level && !App.levelResult.isLast ? "" : "none";
+    $(".win-replay").style.display = level ? "" : "none";
+    $(".win-levels").style.display = level ? "" : "none";
     document.getElementById("win-overlay").classList.add("is-visible");
+  }
+  function clearWinTimers() { App.winTimers.forEach(clearTimeout); App.winTimers = []; }
+  /** Put the win card away (leaving a won game for another screen or sheet). */
+  function leaveWin() {
+    clearWinTimers();
+    document.getElementById("win-overlay").classList.remove("is-visible");
+    document.getElementById("skyline").classList.remove("skyline--asleep");
   }
 
   // ---- timer ----------------------------------------------------------------
@@ -1166,6 +1398,8 @@
           case "resume": resumeGame(); break;
           case "pause-home": quitToMenu(); break;
           case "restart": restart(); break;
+          case "intro-start": startPendingLevel(); break;
+          case "level-back": showTier(App.levelTier); break;
         }
         return;
       }
@@ -1210,6 +1444,19 @@
     $(".win-again").addEventListener("click", function () { newPuzzle(); });
     $(".win-share").addEventListener("click", shareResult);
     $(".win-menu").addEventListener("click", quitToMenu);
+    $(".win-next").addEventListener("click", function () { playLevel(App.tier, App.level + 1); });
+    $(".win-replay").addEventListener("click", function () { playLevel(App.tier, App.level); });
+    $(".win-levels").addEventListener("click", function () { leaveWin(); showTier(App.tier); });
+
+    // Levels overview, a tier's grid, its pinned Play button.
+    $(".levels-back").addEventListener("click", goHome);
+    $(".tier-back").addEventListener("click", showLevels);
+    document.getElementById("levels-list").addEventListener("click", onLevelsClick);
+    document.getElementById("lv-scroll").addEventListener("click", onTierGridClick);
+    document.getElementById("lv-scroll").addEventListener("scroll", updateScrollFade, { passive: true });
+    document.getElementById("lv-cta").addEventListener("click", function () {
+      playLevel(App.levelTier, parseInt(this.getAttribute("data-level"), 10));
+    });
 
     window.addEventListener("resize", sizeBoard);
     // Auto-pause (and save) when the app is hidden or closed mid-game.

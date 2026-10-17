@@ -290,5 +290,22 @@ try {
   console.log(e.stack);
 }
 
+// --- TECHNIQUE_INTROS: the one-time card before a tier's first level ---------
+console.log("Technique intros");
+{
+  const I = E.TECHNIQUE_INTROS;
+  check("TECHNIQUE_INTROS is exported", !!I && typeof I === "object");
+  const techs = Array.from(new Set(Object.values(G.TIERS).filter((t) => t && t.technique).map((t) => t.technique)));
+  check("every tier's technique has an intro (3, 4, 6)", techs.length === 3 && techs.every((k) => I && I[k]));
+  for (const k of techs) {
+    const it = (I && I[k]) || {};
+    check("intro " + k + ": technique is the hint's name (" + S.TECHNIQUE_NAMES[k] + ")", it.technique === S.TECHNIQUE_NAMES[k]);
+    check("intro " + k + ": has a title and a short explanation",
+      typeof it.title === "string" && it.title.length > 0 &&
+      typeof it.text === "string" && it.text.length > 40 && it.text.length < 400);
+    check("intro " + k + ": plain text (no markup)", !/[<>]/.test(it.text + it.title + (it.tip || "")));
+  }
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

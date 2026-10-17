@@ -235,6 +235,157 @@ body {
 }
 .soon-text { font-weight: 300; font-size: 14px; color: var(--muted); }
 
+/* ============================ LEVELS =================================== */
+/* Shared screen header: back link · centred title · a spacer the back link's width. */
+.page-inner { width: 100%; max-width: 460px; margin: 0 auto; }
+.screen-head {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(64px, auto) 1fr minmax(64px, auto);
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: var(--space-2);
+}
+.screen-head .back-link { justify-self: start; margin-left: calc(-1 * var(--space-1)); }
+.screen-title {
+  font-weight: 500;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  color: var(--lit);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Overview: one card per tier. */
+.levels-list { display: flex; flex-direction: column; gap: var(--space-2); padding-bottom: var(--space-3); }
+.lv-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  background: var(--band-far);
+  color: var(--lit);
+  font-family: var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition-default);
+}
+.lv-card:active { transform: scale(0.985); }
+.lv-card-top { display: flex; justify-content: space-between; align-items: baseline; }
+.lv-card-name { font-weight: 500; font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--sodium-light); }
+.lv-card-size { font-weight: 300; font-size: 13px; color: var(--muted); }
+.lv-card-sub { font-weight: 400; font-size: 13px; }
+.lv-card-tech { font-weight: 300; font-size: 12px; color: var(--muted); }
+.lv-bar2 { display: block; height: 5px; margin-top: 5px; border-radius: 3px; overflow: hidden; background: var(--outline); }
+.lv-bar2 span { display: block; height: 100%; border-radius: 3px; background: var(--sodium-light); }
+
+/* A tier's levels: summary, a grid that scrolls and fades out at the bottom edge, and
+   the pinned Play button. The grid takes all the height left, so there is no empty band. */
+#screen-tier { align-items: center; }
+#screen-tier > * { width: 100%; max-width: 560px; }
+.tier-sum {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--band-far);
+}
+.tier-sum-main { font-weight: 500; font-size: 14px; }
+.tier-sum-sub { margin-top: 2px; font-weight: 300; font-size: 12px; color: var(--muted); }
+.tier-sum-bar { flex: 0 0 72px; margin-top: 0; }
+.lv-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: var(--space-1);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: var(--space-3);
+  /* fade the last 40px out; gone once the end is reached (.is-end, set on scroll) */
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent);
+          mask-image: linear-gradient(to bottom, black calc(100% - 40px), transparent);
+}
+.lv-scroll.is-end { -webkit-mask-image: none; mask-image: none; }
+.lv-sec {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: var(--space-3) 2px var(--space-2);
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.lv-sec .lock { width: 12px; height: 12px; }
+.lv-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-2); }
+.lv-btn {
+  aspect-ratio: 1 / 1;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border: 2px solid transparent;
+  border-radius: 9px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: var(--transition-default);
+}
+.lv-btn:active:not(:disabled) { transform: scale(0.96); }
+.lv-btn.is-solved { background: var(--lit); color: var(--lit-digit); box-shadow: var(--shadow-lit); }
+.lv-stars { font-weight: 400; font-size: 10px; letter-spacing: -0.04em; color: var(--sodium-dark); line-height: 1; }
+.lv-btn.is-next { background: var(--night); border-color: var(--sodium-light); color: var(--sodium-light); }
+.lv-btn.is-locked { background: var(--shaded); color: var(--shaded-digit); box-shadow: var(--shadow-shaded); cursor: default; }
+.lv-btn .lock { width: 15px; height: 15px; }
+.lv-cta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  margin-top: var(--space-2);
+  border: none;
+  border-radius: 12px;
+  background: var(--sodium-light);
+  color: var(--night);
+  box-shadow: var(--shadow-lit);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: var(--transition-default);
+}
+.lv-cta:active { transform: scale(0.985); }
+.lv-cta-main { font-weight: 500; font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; }
+.lv-cta-sub { margin-top: 1px; font-weight: 400; font-size: 11px; opacity: 0.8; }
+
+/* Technique intro sheet (once per technique, before its tier's first level). */
+.intro-kicker {
+  font-weight: 500; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--sodium-light);
+}
+.intro-title { margin-bottom: var(--space-2); font-weight: 500; font-size: 18px; color: var(--lit); }
+.intro-tip {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--outline);
+  font-weight: 300; font-size: 13px; line-height: 1.5; color: var(--muted);
+}
+
 /* ============================ TIER LIST ================================= */
 .tier-list { display: flex; flex-direction: column; gap: 6px; }
 .tier {
@@ -724,6 +875,32 @@ body:not(.no-violations) .cell--shaded.violation {
   font-variant-numeric: tabular-nums; margin: var(--space-2) 0 var(--space-5);
 }
 .win-actions { display: flex; flex-direction: column; gap: var(--space-2); width: 220px; margin: 0 auto; }
+
+/* Level win: a shorter title and time, then the three stars, revealed one by one. */
+.win-stars:empty { display: none; }
+.win-stars { display: flex; justify-content: center; gap: var(--space-4); margin-bottom: var(--space-3); }
+.win-star {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  opacity: 0; transform: scale(0.5);
+  transition: opacity 0.3s var(--ease), transform 0.35s var(--ease);
+}
+.win-star.is-shown { opacity: 1; transform: scale(1); }
+.win-star-glyph { font-size: 34px; line-height: 1; color: var(--outline); }
+.win-star.is-earned .win-star-glyph { color: var(--sodium-light); text-shadow: 0 0 14px var(--sodium-dark); }
+.win-star-cap { font-weight: 300; font-size: 10px; letter-spacing: 0.08em; color: var(--muted); }
+/* A solid card at the bottom (it holds more than the free-play panel), so its text never
+   sits on the freshly lit board; Next level spans the row, Replay · Levels share one. */
+.win--level {
+  padding: var(--space-4) var(--space-3) calc(env(safe-area-inset-bottom) + var(--space-4));
+  border-radius: 14px 14px 0 0;
+  border-top: 1px solid var(--outline);
+  background: var(--night);
+}
+.win--level .win-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; max-width: 340px; }
+.win--level .win-next { grid-column: 1 / -1; }
+.win--level .win-tier { font-size: 18px; letter-spacing: 0.12em; }
+.win--level .win-time { font-size: 32px; margin: var(--space-1) 0 var(--space-3); }
+.win--level .win-extra { margin-bottom: var(--space-3); }
 
 /* ============================ SPLASH ================================== */
 /* Cold-start only: HITORI as six lit cells; the final I dims out (the title solves

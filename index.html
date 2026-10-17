@@ -148,7 +148,32 @@
       </div>
     </section>
 
-    <!-- PLACEHOLDER for screens that later tasks build (Levels, Daily, Stats, How to play). -->
+    <!-- LEVELS OVERVIEW: one card per tier (renderLevels). -->
+    <section id="screen-levels" class="screen screen--scroll">
+      <div class="page-inner">
+        <header class="screen-head">
+          <button class="back-link levels-back">‹ Home</button>
+          <h1 class="screen-title">Levels</h1>
+          <span class="screen-head-end" aria-hidden="true"></span>
+        </header>
+        <div id="levels-list" class="levels-list"></div>
+      </div>
+    </section>
+
+    <!-- A TIER'S LEVELS: summary, the scrolling grid (sections of 25) that fades out at
+         the bottom edge, and the pinned "Play level N" button (renderTierGrid). -->
+    <section id="screen-tier" class="screen">
+      <header class="screen-head">
+        <button class="back-link tier-back">‹ Levels</button>
+        <h1 class="screen-title tier-title">Hushed · 8×8</h1>
+        <span class="screen-head-end" aria-hidden="true"></span>
+      </header>
+      <div class="tier-sum" id="tier-sum"></div>
+      <div class="lv-scroll" id="lv-scroll"></div>
+      <button class="lv-cta" id="lv-cta"><span class="lv-cta-main">Play level 1</span><span class="lv-cta-sub">next up</span></button>
+    </section>
+
+    <!-- PLACEHOLDER for screens that later tasks build (Daily, Stats, How to play). -->
     <section id="screen-soon" class="screen">
       <header class="topbar">
         <button class="back-link soon-back">‹ Home</button>
@@ -234,9 +259,14 @@
         <div class="win-tier">Crowded</div>
         <div class="win-label">solved</div>
         <div class="win-time">0:00</div>
+        <!-- Level games: three stars revealed one by one (solved · no hints · no mistakes). -->
+        <div class="win-stars" role="img"></div>
         <div class="win-extra"></div>
         <div class="win-actions">
           <button class="btn btn--primary win-again">Play again</button>
+          <button class="btn btn--primary win-next">Next level</button>
+          <button class="btn btn--secondary win-replay">Replay</button>
+          <button class="btn btn--secondary win-levels">Levels</button>
           <button class="btn btn--secondary win-share">Share</button>
           <button class="btn btn--secondary win-menu">Menu</button>
         </div>

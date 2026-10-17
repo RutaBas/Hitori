@@ -400,6 +400,38 @@ function findClash(cells, numbers, N) {
 // Local aliases for the solver's cell values (SolveCell is ambient in the browser).
 const UNKNOWN_ = SolveCell.UNKNOWN, WHITE_ = SolveCell.WHITE, BLACK_ = SolveCell.BLACK;
 
+/*
+ * TECHNIQUE_INTROS — the one-time card shown before the first level of a tier whose
+ * technique (TIERS[t].technique: 3, 4 or 6) the player hasn't met yet. Same words as the
+ * hints above: "lifeline", "cut off", "split the lit cells in two", "Suppose …", "clash".
+ *   { technique: TECHNIQUE_NAMES[k], title, text, tip }   (plain text, no markup)
+ */
+const TECHNIQUE_INTROS = {
+  3: {
+    technique: TECHNIQUE_NAMES[3],
+    title: "A lit cell needs a way out",
+    text: "All lit cells must stay connected. When a lit cell has only one open neighbour left, " +
+      "that neighbour is its lifeline: shade it and the lit cell is cut off, so it stays lit.",
+    tip: "Look for lit cells hemmed in by shaded cells.",
+  },
+  4: {
+    technique: TECHNIQUE_NAMES[4],
+    title: "Keep the lit cells in one piece",
+    text: "Sometimes no single lit cell is boxed in, yet shading a cell would split the lit cells " +
+      "in two, one group cut off from the rest. A cell like that stays lit.",
+    tip: "Look at narrow gaps that join two parts of the board.",
+  },
+  6: {
+    technique: TECHNIQUE_NAMES[6],
+    title: "Suppose, and follow it through",
+    text: "When nothing simpler works, try a cell one way. Suppose it were shaded and follow what " +
+      "that forces. If it leads to a clash (a number repeats, two shaded cells touch, or the lit " +
+      "cells get split apart), the supposition was wrong, so it stays lit. It works the other way too.",
+    tip: "A hint can walk you through each step.",
+  },
+};
+
 if (typeof module !== "undefined") {
-  module.exports = { explainTier, traceDeduce, pickShortest, explainChainLength, explainDistance, findClash, cellName };
+  module.exports = { explainTier, traceDeduce, pickShortest, explainChainLength, explainDistance, findClash, cellName,
+    TECHNIQUE_INTROS };
 }
