@@ -442,18 +442,42 @@ body:not(.no-violations) .cell--shaded.violation {
   50% { box-shadow: inset 0 2px 5px rgba(0,0,0,0.75), 0 0 0 2px var(--violation); }
 }
 
-/* Hint highlight. Cream lamplight, NOT sodium — sodium always means "you did this",
-   so the puzzle pointing somewhere must speak in a different voice. */
-@keyframes hintPulse {
-  0%, 100% { box-shadow: var(--shadow-lit); }
-  50% { box-shadow: 0 0 0 2px var(--lit), 0 0 16px rgba(239, 227, 202, 0.55); }
+/* Hint marks (the approved v2 mockup): evidence = solid sodium outline, target = dashed
+   sodium outline on a faint sodium wash. They sit just outside the cell, over the night
+   gap, so they read on lit and shaded cells alike. Outlines never touch a digit. */
+.cell.hint-ev,
+.cell.hint-tg,
+.cell.hint-clash { z-index: 2; outline-offset: 0; }
+.cell.hint-ev { outline: 2px solid var(--sodium-light); }
+.cell.hint-tg { outline: 2px dashed var(--sodium-light); }
+.cell.hint-tg:not(.cell--shaded) { background: color-mix(in srgb, var(--lit) 78%, var(--sodium-light)); }
+/* The last walk-through frame: the cells of the (hypothetical) rule violation. */
+.cell.hint-clash { outline: 2px solid var(--violation); }
+.cell.hint-clash.hint-tg { outline-style: dashed; }
+
+/* Walk-through ghosts: a "what if" layer, clearly not the player's marks. A real shaded
+   cell is solid dark with a grey digit; a ghost shade is dark hatching over the lit cell,
+   digit still dark. A real lit mark is a solid sodium ring; a ghost lit is a dotted
+   blue-grey ring. */
+.cell .ghost {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 0.18s var(--ease);
 }
-@keyframes hintPulseDark {
-  0%, 100% { box-shadow: var(--shadow-shaded); }
-  50% { box-shadow: inset 0 2px 5px rgba(0,0,0,0.75), 0 0 0 2px var(--lit); }
+.cell.ghost-shade .ghost {
+  opacity: 0.55;
+  background: repeating-linear-gradient(135deg, var(--shaded) 0 3px, transparent 3px 7px);
 }
-.cell.hint { animation: hintPulse 1s var(--ease) infinite; z-index: 2; }
-.cell--shaded.hint { animation: hintPulseDark 1s var(--ease) infinite; }
+.cell.ghost-lit .ghost {
+  opacity: 1;
+  inset: 14%;
+  border-radius: 50%;
+  border: 2px dotted var(--shaded-digit);
+}
 
 /* Hint box — fixed height (--hint-box-h) under the board so the board never jumps.
    Idle it shows the three rules as a quiet reminder; .has-hint swaps in the hint text. */
@@ -492,23 +516,53 @@ body:not(.no-violations) .cell--shaded.violation {
   background: var(--outline);
 }
 .hint-box.has-hint .hint-rules { display: none; }
+/* A staged hint / walk-through step: header (technique + stage), the sentence (scrolls
+   inside the fixed box if long), and a one-line footnote. */
+.hint-box.has-hint { justify-content: flex-start; overflow: hidden; }
 .hint-toast {
   display: none;
-  text-align: center;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
   font-weight: 300;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12.5px;
+  line-height: 1.4;
   letter-spacing: 0.02em;
   color: var(--lit);
 }
-.hint-toast .tech {
-  color: var(--sodium-light);
+.hint-toast.is-visible { display: flex; }
+.hint-head {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 2px;
   font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 12px;
+  color: var(--sodium-light);
 }
-.hint-toast.is-visible { display: block; }
+.hint-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.hint-foot {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--sodium-light);
+}
+.hint-walk {
+  /* an inline link with a bigger tap area than its text */
+  margin: -8px -4px;
+  padding: 8px 4px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  color: var(--sodium-light);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
 
 /* ============================ CONTROLS ================================= */
 /* Thumb row: Undo · Hint · Pause, bigger than the sheet buttons. */
@@ -521,6 +575,12 @@ body:not(.no-violations) .cell--shaded.violation {
 .controls .btn { min-height: 52px; border-radius: 12px; letter-spacing: 0.08em; padding: 0 var(--space-1); }
 .controls .btn--secondary { background: var(--night); }   /* opaque over the skyline */
 .controls .btn-hint { border-color: var(--sodium-light); color: var(--sodium-light); }
+.controls .btn:disabled { opacity: 0.4; cursor: default; }
+/* The walk-through swaps the thumb row for Back · Next · Close · Pause. */
+.controls-walk { display: none; }
+#screen-play.is-walking .controls-play { display: none; }
+#screen-play.is-walking .controls-walk { display: flex; }
+.controls-walk .walk-next { border-color: var(--sodium-light); color: var(--sodium-light); }
 .btn {
   flex: 1 1 0;
   min-height: 46px;

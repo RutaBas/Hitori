@@ -179,8 +179,8 @@
         <div id="board" class="board"></div>
       </div>
 
-      <!-- Fixed height so the board never jumps. Idle: the three rules. A hint replaces
-           them (Task 11 fills this box with the staged hints). -->
+      <!-- Fixed height so the board never jumps. Idle: the three rules. A staged hint or
+           a walk-through step replaces them (#hint-toast, filled by renderHint). -->
       <div class="hint-box" id="hint-box">
         <ul class="hint-rules" aria-label="The rules">
           <li>No number repeats among the lit cells of a row or column</li>
@@ -190,10 +190,17 @@
         <div class="hint-toast" id="hint-toast" aria-live="polite"></div>
       </div>
 
-      <div class="controls">
+      <div class="controls controls-play">
         <button class="btn btn--secondary btn-undo">Undo</button>
         <button class="btn btn--secondary btn-hint">Hint</button>
         <button class="btn btn--secondary btn-pause">Pause</button>
+      </div>
+      <!-- The walk-through's own thumb row; replaces the one above while it is open. -->
+      <div class="controls controls-walk">
+        <button class="btn btn--secondary walk-back">‹ Back</button>
+        <button class="btn btn--secondary walk-next">Next ›</button>
+        <button class="btn btn--secondary walk-close">Close</button>
+        <button class="btn btn--secondary btn-pause walk-pause">Pause</button>
       </div>
     </section>
 

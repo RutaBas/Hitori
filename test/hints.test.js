@@ -109,15 +109,31 @@ try {
       h.kind === "mistake" && h.i === i && h.text === "This cell can't be shaded. The puzzle can't be finished with it dark.");
   }
   {
-    // two quietly wrong marks (no rule broken): the earlier one in reading order wins,
-    // whatever lastTap says
+    // two quietly wrong marks (no rule broken): the one nearest lastTap wins; without a
+    // lastTap (or on a distance tie) the earlier one in reading order wins
     const sol = Array.from(p1.solution);
     const late = sol.lastIndexOf(0), early = sol.indexOf(1);
     const state = new Int8Array(N1 * N1); state[late] = SHADED; state[early] = CIRCLED;
     const quiet = E.findClash(H.stateToCells(state), p1.numbers, N1) === null;
-    const h = H.nextHint(state, p1.numbers, N1, p1.solution, late);
-    check("earliest wrong mark is reported first", quiet && early < late && h.kind === "mistake" && h.i === early);
+    check("fixture: two quiet wrong marks, early before late", quiet && early < late);
+    const near = H.nextHint(state, p1.numbers, N1, p1.solution, late);
+    check("quiet mistakes: the wrong mark nearest lastTap is reported", near.kind === "mistake" && near.i === late);
+    const nearEarly = H.nextHint(state, p1.numbers, N1, p1.solution, early);
+    check("quiet mistakes: nearest also works the other way", nearEarly.kind === "mistake" && nearEarly.i === early);
+    const none = H.nextHint(state, p1.numbers, N1, p1.solution, null);
+    check("quiet mistakes: without lastTap, earliest in reading order", none.kind === "mistake" && none.i === early);
+    // a tap equidistant from both marks -> reading order
+    const d = (a, b) => Math.abs(((a / N1) | 0) - ((b / N1) | 0)) + Math.abs((a % N1) - (b % N1));
+    let tie = -1;
+    for (let t = 0; t < N1 * N1 && tie < 0; t++) if (d(t, early) === d(t, late)) tie = t;
+    if (tie >= 0) {
+      const ht = H.nextHint(state, p1.numbers, N1, p1.solution, tie);
+      check("quiet mistakes: distance tie -> reading order", ht.kind === "mistake" && ht.i === early);
+    }
   }
+
+  // --- one distance rule, shared with explain.js -----------------------------
+  check("distanceTo is explain.js's shared explainDistance", typeof E.explainDistance === "function" && H.distanceTo === E.explainDistance);
 
   // --- two touching shaded cells ---------------------------------------------
   {
@@ -175,6 +191,80 @@ try {
       const none = H.nextHint(state, p.numbers, p.N, p.solution, null);
       check("two T2 deductions: without lastTap, lowest i", none.kind === "deduction" && none.exp.i === lowest.i);
     }
+  }
+
+  // --- walkFrames ------------------------------------------------------------
+  const ghostKeys = (g) => Object.keys(g).map(Number).sort((a, b) => a - b);
+  const sub = (a, b) => Object.keys(a).every((k) => b[k] === a[k]); // a ⊆ b
+  {
+    // a real T6 explanation: replay Secluded puzzles until the cheapest tier is 6
+    let t6 = null;
+    for (let k = 0; k < 40 && !t6; k++) {
+      const p = puzzleOf(5, k);
+      const state = new Int8Array(p.N * p.N);
+      for (let g = 0; g < p.N * p.N; g++) {
+        const h = H.nextHint(state, p.numbers, p.N, p.solution, null);
+        if (h.kind !== "deduction") break;
+        if (h.exp.tier === 6 && h.exp.chain.every((s) => !s.chain)) { t6 = h.exp; break; }
+        state[h.exp.i] = toMark(h.exp.value);
+      }
+    }
+    check("fixture: a flat T6 explanation was found", t6 !== null);
+    if (t6) {
+      const before = JSON.stringify(t6);
+      const f = H.walkFrames(t6);
+      check("walkFrames T6: one frame per chain step plus the clash", f.length === t6.chain.length + 1);
+      check("walkFrames T6: frame 0 is the assumption, a ghost on the target",
+        sameArr(ghostKeys(f[0].ghosts), [t6.i]) && f[0].ghosts[t6.i] === t6.chain[0].value && f[0].i === t6.i);
+      check("walkFrames T6: frame 0 says 'Suppose this cell ...'", /^Suppose this cell (were shaded|stayed lit)/.test(f[0].text));
+      let acc = true;
+      for (let k = 1; k < t6.chain.length; k++) {
+        const s = t6.chain[k];
+        acc = acc && sub(f[k - 1].ghosts, f[k].ghosts) && f[k].ghosts[s.i] === s.value &&
+          ghostKeys(f[k].ghosts).length === k + 1 && f[k].i === s.i && f[k].text === s.text;
+      }
+      check("walkFrames T6: ghosts accumulate one step per frame, each with its own reason", acc);
+      const last = f[f.length - 1];
+      check("walkFrames T6: last frame's focus is the clash cells", sameArr(last.focus, t6.clash.cells));
+      check("walkFrames T6: last frame keeps every ghost and names the clash",
+        sameArr(ghostKeys(last.ghosts), ghostKeys(f[f.length - 2].ghosts)) && last.text.indexOf(t6.clash.text) === 0);
+      check("walkFrames T6: frames never share a ghosts object", f.every((x, k) => k === 0 || x.ghosts !== f[k - 1].ghosts));
+      check("walkFrames: the (cached, shared) explanation is not mutated", JSON.stringify(t6) === before);
+    }
+  }
+  {
+    // synthetic T6 with a nested T5 "both-ways" step: nested frames are flattened in, and
+    // the inner branch's ghosts never leak into the outer chain
+    const as = (i, value) => ({ i, value, rule: "assume", evidence: [], short: "s", text: "Suppose " + i });
+    const st = (i, value, extra) => Object.assign({ i, value, tier: 2, technique: "Propagation", rule: "r", evidence: [i + 1], short: "s", text: "step " + i }, extra);
+    const inner = [as(20, WHITE), st(21, BLACK), st(30, WHITE), as(20, BLACK), st(30, WHITE)];
+    const exp = { i: 5, value: WHITE, tier: 6, technique: "Contradiction", rule: "contradiction", evidence: [6, 7],
+      short: "s", text: "t",
+      chain: [as(5, BLACK), st(6, WHITE), Object.assign(st(30, WHITE), { tier: 5, rule: "both-ways", chain: inner }), st(7, BLACK)],
+      clash: { rule: "touching", cells: [7, 8], text: "These two shaded cells touch." } };
+    const f = H.walkFrames(exp);
+    check("walkFrames nested: frame count = explainChainLength + 1", f.length === E.explainChainLength(exp.chain) + 1 && f.length === 10);
+    // frames: 0 assume5, 1 step6, 2 inner-assume20W, 3 step21, 4 step30, 5 inner-assume20B, 6 step30, 7 outer step30, 8 step7, 9 clash
+    check("walkFrames nested: inner branch starts from the outer ghosts", sameArr(ghostKeys(f[2].ghosts), [5, 6, 20]) && f[2].ghosts[20] === WHITE);
+    check("walkFrames nested: second inner branch resets the first one's ghosts",
+      sameArr(ghostKeys(f[5].ghosts), [5, 6, 20]) && f[5].ghosts[20] === BLACK);
+    check("walkFrames nested: inner assume has its own wording", /both ways/.test(f[2].text) && /instead/.test(f[5].text));
+    check("walkFrames nested: after the inner walk only its conclusion stays",
+      sameArr(ghostKeys(f[7].ghosts), [5, 6, 30]) && f[7].i === 30 && sameArr(ghostKeys(f[8].ghosts), [5, 6, 7, 30]));
+    check("walkFrames nested: last frame focus = clash cells", sameArr(f[9].focus, [7, 8]));
+  }
+  {
+    // top-level T5 both-ways: two branches from an empty base, then the agreed result
+    const as = (i, value) => ({ i, value, rule: "assume", evidence: [], short: "s", text: "Suppose " + i });
+    const st = (i, value) => ({ i, value, tier: 2, technique: "Propagation", rule: "r", evidence: [], short: "s", text: "step " + i });
+    const exp = { i: 9, value: WHITE, tier: 5, technique: "Chain", rule: "both-ways", evidence: [1], short: "s",
+      text: "Whether it is shaded or lit, this cell ends up lit, so it stays lit.",
+      chain: [as(1, WHITE), st(2, BLACK), st(9, WHITE), as(1, BLACK), st(9, WHITE)] };
+    const f = H.walkFrames(exp);
+    check("walkFrames T5: one frame per step plus the conclusion", f.length === 6);
+    check("walkFrames T5: second branch starts clean", sameArr(ghostKeys(f[3].ghosts), [1]) && f[3].ghosts[1] === BLACK);
+    check("walkFrames T5: conclusion shows only the target, with the summary",
+      sameArr(ghostKeys(f[5].ghosts), [9]) && f[5].i === 9 && f[5].text === exp.text);
   }
 
   // --- replay: 100 puzzles per tier ------------------------------------------

@@ -45,13 +45,14 @@
     tracker: null,        // lingering-mistake tracker (progress.js)
     undoStack: [],        // [{ i, prev }]
     won: false,
-    lastTap: null,        // index of the last tapped cell (win sweep origin)
+    lastTap: null,        // index of the last tapped cell (win sweep origin, nearest hint)
     timerId: null,
     startedAt: 0,
     baseMs: 0,            // accumulated elapsed ms (survives resume; paused time never lands here)
     paused: false,        // pauseGame(): clock stopped, board hidden, Paused overlay up
     settings: null,
-    hintTimer: null,
+    hint: null,           // the open staged hint (see renderHint), or null
+    hintHeld: null,       // the hint put aside while paused; resumeGame shows it again
     winOrder: [],         // skyline windows, nearest-first (city-goes-to-sleep order)
     darkCount: 0,         // how many windows are currently darkened
     splashTimers: [],
@@ -501,6 +502,9 @@
       c.setAttribute("cx", "50"); c.setAttribute("cy", "50"); c.setAttribute("r", "38");
       svg.appendChild(c);
       cell.appendChild(svg);
+      // Walk-through ghost layer: drawn by .ghost-shade / .ghost-lit on the cell, never
+      // by the cell's real state.
+      cell.appendChild(el("span", "ghost"));
       frag.appendChild(cell);
     }
     board.appendChild(frag);
@@ -545,6 +549,9 @@
     if (App.won || App.paused) return;
     var cell = ev.target.closest ? ev.target.closest(".cell") : null;
     if (!cell) return;
+    // During a walk-through a tap only closes it (the ghosts go, no mark changes). Either
+    // way a board tap ends the current hint, so the next press starts at stage 1 again.
+    if (App.hint && App.hint.walk) { clearHint(); return; }
     clearHint();
     var i = parseInt(cell.getAttribute("data-i"), 10);
     var prev = App.board.getState(i);
@@ -583,6 +590,7 @@
   // ---- undo / restart / new -------------------------------------------------
   function undo() {
     if (App.won || App.paused || !App.undoStack.length) return;
+    clearHint();
     var m = App.undoStack.pop();
     App.board.setState(m.i, m.prev);
     App.moves++;
@@ -627,7 +635,7 @@
     resetCitySleep();
     // strip any transient animation classes left over
     var nodes = document.querySelectorAll("#board .cell");
-    for (var d = 0; d < nodes.length; d++) nodes[d].classList.remove("dip", "win-lit", "win-vanish", "hint");
+    for (var d = 0; d < nodes.length; d++) nodes[d].classList.remove("dip", "win-lit", "win-vanish");
     clearViolations();
     clearHint();
     stopTimer();
@@ -692,65 +700,223 @@
     }
   }
 
-  // ---- hints (solver-powered next deduction) --------------------------------
+  // ---- hints: three stages + the walk-through (spec §2) ----------------------
+  // App.hint = null | { h, stage, walk, fix }. h is nextHint()'s result for the board as
+  // it was when Hint was first pressed; any board change (tap, undo, an applied hint)
+  // drops it. Explanations inside h are cached and shared by hints.js: read-only here.
+  //   deduction: 1 nudge (short + evidence) -> 2 explain (text + dashed target; T5/T6 can
+  //              "walk me through it") -> 3 apply the move
+  //   mistake:   1 nudge -> 2 explain -> 3 clear the wrong mark(s) in `fix`
+  //   stuck:     1 reveal (text + target) -> 2 apply
+  // Ghosts and outlines are classes on the cells, drawn by each cell's own .ghost layer and
+  // outline; renderCell and App.board.state never see them, so clearing them restores the
+  // board exactly.
+  var HINT_CLASSES = ["hint-ev", "hint-tg", "hint-clash", "ghost-shade", "ghost-lit"];
+
+  function hintStages(h) { return h.kind === "stuck" ? 2 : h.kind === "done" ? 1 : 3; }
+  function hintCell(i) { return document.querySelector('#board .cell[data-i="' + i + '"]'); }
+  function markCells(list, cls) {
+    for (var k = 0; k < list.length; k++) { var c = hintCell(list[k]); if (c) c.classList.add(cls); }
+  }
+  function isWrongCell(i) {
+    var s = App.board.getState(i);
+    return (s === CellState.SHADED && !App.solution[i]) || (s === CellState.CIRCLED && !!App.solution[i]);
+  }
+  /** Marks a mistake hint clears at stage 3: the wrong ones among its cells, else the wrong
+   *  mark nearest them (a "split" names the lit cells, not the shading that splits them). */
+  function mistakeFix(h) {
+    var fix = h.cells.filter(isWrongCell);
+    if (fix.length) return fix;
+    var area = { i: h.cells[0], evidence: h.cells }, best = -1, bd = Infinity;
+    for (var i = 0; i < App.N * App.N; i++) {
+      if (!isWrongCell(i)) continue;
+      var d = distanceTo(area, i, App.N);
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best >= 0 ? [best] : [];
+  }
+
+  /** Remove every hint outline and ghost from the board, and leave walk mode. */
+  function clearHintMarks() {
+    for (var k = 0; k < HINT_CLASSES.length; k++) {
+      var nodes = document.querySelectorAll("#board .cell." + HINT_CLASSES[k]);
+      for (var m = 0; m < nodes.length; m++) nodes[m].classList.remove(HINT_CLASSES[k]);
+    }
+    document.getElementById("screen-play").classList.remove("is-walking");
+  }
+  /** Drop the current hint (board changed, restart, new game, win): the rules come back. */
   function clearHint() {
-    var nodes = document.querySelectorAll("#board .cell.hint");
-    for (var k = 0; k < nodes.length; k++) nodes[k].classList.remove("hint");
+    App.hint = null;
+    App.hintHeld = null;
+    clearHintMarks();
     document.getElementById("hint-toast").classList.remove("is-visible");
     document.getElementById("hint-box").classList.remove("has-hint");   // idle: the rules again
-    if (App.hintTimer) { clearTimeout(App.hintTimer); App.hintTimer = null; }
   }
-  function highlightHint(i) {
-    clearHint();
-    var cell = document.querySelector('#board .cell[data-i="' + i + '"]');
-    if (cell) cell.classList.add("hint");
-  }
-  function showToast(tech, msg) {
-    var toast = document.getElementById("hint-toast");
-    toast.innerHTML = (tech ? '<span class="tech">' + tech + "</span> — " : "") + msg;
+
+  function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+  /** Draw App.hint (its stage, or its walk-through frame) into the hint box and onto the board. */
+  function renderHint() {
+    clearHintMarks();
+    var toast = document.getElementById("hint-toast"), box = document.getElementById("hint-box");
+    var H = App.hint;
+    if (!H) { toast.classList.remove("is-visible"); box.classList.remove("has-hint"); return; }
+    var h = H.h, label = "Hint", count = H.stage + " / " + hintStages(h), body = "", foot = "";
+
+    if (H.walk) {
+      var fr = H.walk.frames, k = H.walk.k, f = fr[k], lastF = k === fr.length - 1;
+      var clashF = lastF && !!h.exp.clash;
+      label = "Walk-through · " + (k === 0 ? "Suppose" : clashF ? "Clash" : f.technique || "Step");
+      count = (k + 1) + " / " + fr.length;
+      body = esc(f.text);
+      // Footnote on the first and last frames only, so the step text keeps the room.
+      foot = lastF ? "Close to go back to the hint"
+        : k === 0 ? "Ghost marks are a “what if” only. Your board is unchanged." : "";
+      for (var g in f.ghosts) {
+        if (Object.prototype.hasOwnProperty.call(f.ghosts, g)) {
+          markCells([+g], f.ghosts[g] === SolveCell.BLACK ? "ghost-shade" : "ghost-lit");
+        }
+      }
+      markCells(f.focus, clashF ? "hint-clash" : "hint-ev");
+      markCells([f.i], "hint-tg");
+      document.getElementById("screen-play").classList.add("is-walking");
+      $(".walk-back").disabled = k === 0;
+      $(".walk-next").disabled = lastF;
+    } else if (h.kind === "deduction") {
+      var e = h.exp;
+      label = "Hint · " + e.technique;
+      if (H.stage === 1) {
+        body = esc(e.short);
+        foot = "tap Hint again for the reason";
+        markCells(e.evidence, "hint-ev");
+      } else {
+        body = esc(e.text);
+        foot = "tap Hint again to " + (e.value === SolveCell.BLACK ? "shade it" : "mark it lit");
+        if (e.chain) foot += ' · <button class="hint-walk" type="button">walk me through it</button>';
+        markCells(e.evidence, "hint-ev");
+        markCells([e.i], "hint-tg");
+      }
+    } else if (h.kind === "mistake") {
+      label = "Hint · Mistake";
+      if (H.stage === 1) {
+        body = h.cells.length > 1 ? "Something in the outlined cells breaks a rule. Can you spot it?"
+          : "Take another look at the outlined cell.";
+        foot = "tap Hint again for the reason";
+        markCells(h.cells, "hint-ev");
+      } else {
+        body = esc(h.text);
+        foot = H.fix.length ? "tap Hint again to clear " + (H.fix.length > 1 ? "those marks" : "that mark") : "";
+        markCells(h.cells, "hint-ev");
+        markCells(H.fix, "hint-tg");
+      }
+    } else if (h.kind === "stuck") {
+      label = "Hint · Reveal";
+      body = esc(h.text);
+      foot = "tap Hint again to " + (h.value === SolveCell.BLACK ? "shade it" : "mark it lit");
+      markCells([h.i], "hint-tg");
+    } else {
+      body = "Every shaded cell is already in place.";
+      count = "";
+    }
+    toast.innerHTML = '<div class="hint-head"><span>' + esc(label) + "</span><span>" + count + "</span></div>" +
+      '<div class="hint-body">' + body + "</div>" + (foot ? '<div class="hint-foot">' + foot + "</div>" : "");
     toast.classList.add("is-visible");
-    document.getElementById("hint-box").classList.add("has-hint");
-    if (App.hintTimer) clearTimeout(App.hintTimer);
-    App.hintTimer = setTimeout(clearHint, 6000);
+    box.classList.add("has-hint");
+    var bodyEl = toast.querySelector(".hint-body");
+    if (bodyEl) bodyEl.scrollTop = 0;
   }
+
+  /** The Hint button: open stage 1, advance a stage, or apply the move. Every press counts. */
   function showHint() {
     if (App.won || App.paused || !App.board) return;
-    App.hintsUsed++;          // every press counts (stars); Task 11 brings the staged hints
+    if (App.hint && App.hint.walk) return;           // the walk-through has its own controls
+    App.hintsUsed++;                                 // every press counts (stars)
+    var H = App.hint;
+    if (!H) {
+      var h = nextHint(App.board.state, App.board.numbers, App.N, App.solution, App.lastTap);
+      H = App.hint = { h: h, stage: 1, walk: null, fix: [] };
+      if (h.kind === "mistake") {
+        H.fix = mistakeFix(h);
+        // A hint pointing at a wrong mark counts it as a mistake. flagMistake only counts a
+        // cell trackMove has already seen wrong (not yet, e.g., on a migrated save), so let
+        // trackMove see the board first when it hasn't.
+        var unseen = H.fix.some(function (i) { return App.tracker.wrongSince[i] === undefined; });
+        if (unseen) trackMove(App.tracker, App.board.state, App.solution);
+        for (var k = 0; k < H.fix.length; k++) flagMistake(App.tracker, H.fix[k]);
+      }
+    } else if (H.stage < hintStages(H.h) - 1) {    // the last press applies; it has no view
+      H.stage++;
+    } else {
+      applyHint(H);
+      updateHudSub();
+      return;
+    }
+    renderHint();
     updateHudSub();
     saveGame();
-    var N = App.N, st = App.board.state, sol = App.solution;
+  }
 
-    // 1. Correct a player mistake before offering a deduction — a deductive hint on an
-    //    inconsistent board would point at the wrong thing.
-    for (var i = 0; i < N * N; i++) {
-      if (st[i] === CellState.SHADED && sol[i] !== 1) {
-        highlightHint(i); showToast(null, "This cell can’t be shaded — un-shade it."); return;
-      }
-      if (st[i] === CellState.CIRCLED && sol[i] === 1) {
-        highlightHint(i); showToast(null, "This cell should be dark, not lit."); return;
-      }
+  /** Final stage: make the move the hint explained, as ordinary undoable moves. */
+  function applyHint(H) {
+    var h = H.h, moves = [];
+    if (h.kind === "deduction") {
+      moves.push({ i: h.exp.i, next: h.exp.value === SolveCell.BLACK ? CellState.SHADED : CellState.CIRCLED });
+    } else if (h.kind === "stuck") {
+      moves.push({ i: h.i, next: h.value === SolveCell.BLACK ? CellState.SHADED : CellState.CIRCLED });
+    } else if (h.kind === "mistake") {
+      H.fix.forEach(function (i) { moves.push({ i: i, next: CellState.UNMARKED }); });
     }
+    clearHint();
+    if (!moves.length) { saveGame(); return; }
+    for (var k = 0; k < moves.length; k++) {
+      var m = moves[k];
+      App.undoStack.push({ i: m.i, prev: App.board.getState(m.i) });
+      App.board.setState(m.i, m.next);
+      App.moves++;
+      App.lastTap = m.i;
+      trackMove(App.tracker, App.board.state, App.solution);
+      renderCell(m.i);
+    }
+    if (moves[moves.length - 1].next === CellState.CIRCLED) Sound.tick(); else Sound.click();
+    updateCitySleep();
+    if (App.settings.violations) showViolations();
+    saveGame();
+    checkWin();
+  }
 
-    // 2. Next deduction from the (now known-consistent) player progress.
-    var seed = new Int8Array(N * N);
-    for (var j = 0; j < N * N; j++) {
-      seed[j] = st[j] === CellState.SHADED ? SolveCell.BLACK
-              : st[j] === CellState.CIRCLED ? SolveCell.WHITE
-              : SolveCell.UNKNOWN;
-    }
-    var h = hintNext(seed, App.board.numbers, N);
-    if (h.status === "deduction") {
-      highlightHint(h.i);
-      showToast(h.technique, h.value === SolveCell.BLACK ? "this cell must be shaded." : "this cell must stay lit.");
-    } else if (h.status === "contradiction") {
-      showToast(null, "Something doesn’t add up — check your shaded cells.");
-    } else {
-      // Stuck (shouldn't happen for our tier-bounded puzzles): reveal a correct next cell.
-      var rev = -1;
-      for (var k = 0; k < N * N; k++) if (st[k] === CellState.UNMARKED && sol[k] === 1) { rev = k; break; }
-      if (rev >= 0) { highlightHint(rev); showToast(null, "This cell must be shaded."); }
-      else showToast(null, "No more deductions — you’re nearly there.");
-    }
+  // ---- the walk-through: Next / Back over walkFrames, as ghosts only -------------
+  function openWalk() {
+    var H = App.hint;
+    if (!H || H.h.kind !== "deduction" || !H.h.exp.chain || App.paused) return;
+    var frames = walkFrames(H.h.exp);
+    if (!frames.length) return;
+    H.walk = { frames: frames, k: 0 };
+    renderHint();
+  }
+  function stepWalk(d) {
+    var H = App.hint;
+    if (!H || !H.walk) return;
+    H.walk.k = Math.max(0, Math.min(H.walk.frames.length - 1, H.walk.k + d));
+    renderHint();
+  }
+  /** Close the walk-through: the ghosts go and the hint is back at stage 2. */
+  function closeWalk() {
+    if (!App.hint || !App.hint.walk) return;
+    App.hint.walk = null;
+    renderHint();
+  }
+
+  /** Pause: hide the hint's marks but keep the (paid-for) hint, to show again on resume. */
+  function suspendHint() {
+    var held = App.hint;
+    clearHint();
+    if (held) { held.walk = null; App.hintHeld = held; }   // a walk-through closes to stage 2
+  }
+  function restoreHint() {
+    if (!App.hintHeld) return;
+    App.hint = App.hintHeld;
+    App.hintHeld = null;
+    renderHint();
   }
 
   // ---- win ------------------------------------------------------------------
@@ -859,7 +1025,7 @@
     stopTimer();
     updateTimerLabel();
     setPaused(true);
-    clearHint();
+    suspendHint();          // ghosts and outlines go; the same hint comes back on resume
     closeMenu();
     saveGame();
     showOverlay(
@@ -875,6 +1041,7 @@
     setPaused(false);
     hideOverlay();
     startTimer();
+    restoreHint();
   }
   /** Backdrop, close buttons and Escape: a paused game resumes; any other sheet just closes. */
   function dismissOverlay() {
@@ -1000,13 +1167,23 @@
       onHomeClick(e);
     });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { dismissOverlay(); closeMenu(); }
+      if (e.key === "Escape") {
+        if (App.hint && App.hint.walk && !App.paused) { closeWalk(); return; }
+        dismissOverlay(); closeMenu();
+      }
     });
 
     document.getElementById("board").addEventListener("click", onBoardClick);
     $(".btn-undo").addEventListener("click", undo);
     $(".btn-hint").addEventListener("click", showHint);
     $(".btn-pause").addEventListener("click", pauseGame);
+    $(".walk-pause").addEventListener("click", pauseGame);
+    $(".walk-back").addEventListener("click", function () { stepWalk(-1); });
+    $(".walk-next").addEventListener("click", function () { stepWalk(1); });
+    $(".walk-close").addEventListener("click", closeWalk);
+    document.getElementById("hint-box").addEventListener("click", function (e) {
+      if (e.target.closest(".hint-walk")) openWalk();
+    });
     $(".hud-home").addEventListener("click", quitToMenu);
     $(".hud-menu").addEventListener("click", openMenu);
 

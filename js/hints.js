@@ -8,12 +8,13 @@
  *     | { kind: "stuck", i, value, text }       no step found: reveal one cell, said honestly
  *     | { kind: "done" }                        the shaded cells match the solution
  *   distanceTo(exp, lastTap, N) -> min Manhattan distance from lastTap to exp.i or any
- *       evidence cell (0 when lastTap is null)
+ *       evidence cell (0 when lastTap is null) — explain.js's explainDistance, the one rule
+ *   walkFrames(exp) -> the walk-through frames of a T5/T6 explanation (see below)
  *
  * Order: (1) a mark that breaks a rule right now (findClash names the rule and the cells);
- * (2) the earliest mark that disagrees with the solution; (3) done; (4) the cheapest tier
- * with any deduction, nearest the last tap (tie: lowest i) — at T6 the shortest chain first
- * (pickShortest); (5) stuck. Circled cells are the player's "lit"; unmarked lit cells are
+ * (2) the mark that disagrees with the solution nearest the last tap (tie: reading order);
+ * (3) done; (4) the cheapest tier with any deduction, nearest the last tap (tie: lowest
+ * i) — at T6 the shortest chain first (pickShortest); (5) stuck. Circled cells are the player's "lit"; unmarked lit cells are
  * fine, so the board is done once exactly the solution's cells are shaded.
  *
  * Listings are cached per board state (bounded), so a repeat press is instant even when the
@@ -34,16 +35,8 @@ function stateToCells(state) {
   return out;
 }
 
-function distanceTo(exp, lastTap, N) {
-  if (lastTap == null) return 0;
-  const tr = (lastTap / N) | 0, tc = lastTap - tr * N;
-  let best = Infinity;
-  for (const x of [exp.i].concat(exp.evidence || [])) {
-    const r = (x / N) | 0, d = Math.abs(r - tr) + Math.abs(x - r * N - tc);
-    if (d < best) best = d;
-  }
-  return best;
-}
+// One distance rule for every "nearest the last tap" choice (explain.js owns it).
+const distanceTo = explainDistance;
 
 // --- per-board-state cache of the cheapest tier's listing -----------------------------
 // key = numbers + cells (one char per cell); value = { tier, entries } (tier 0: nothing).
@@ -94,14 +87,18 @@ function nextHint(state, numbers, N, solution, lastTap) {
   const clash = findClash(cells, numbers, N);
   if (clash) return { kind: "mistake", i: clash.cells[0], cells: clash.cells.slice(), text: clash.text };
 
-  // (2) the earliest mark the solution disagrees with
+  // (2) a mark the solution disagrees with, nearest the last tap (tie: reading order)
+  let wrong = -1, wd = Infinity;
   for (let i = 0; i < total; i++) {
-    if (state[i] === CellState.SHADED && !solution[i]) {
-      return { kind: "mistake", i, cells: [i], text: "This cell can't be shaded. The puzzle can't be finished with it dark." };
-    }
-    if (state[i] === CellState.CIRCLED && solution[i]) {
-      return { kind: "mistake", i, cells: [i], text: "This cell can't stay lit. The puzzle can't be finished with it lit." };
-    }
+    const bad = (state[i] === CellState.SHADED && !solution[i]) || (state[i] === CellState.CIRCLED && solution[i]);
+    if (!bad) continue;
+    const d = distanceTo({ i }, lastTap, N);
+    if (d < wd) { wrong = i; wd = d; }
+  }
+  if (wrong >= 0) {
+    return { kind: "mistake", i: wrong, cells: [wrong], text: state[wrong] === CellState.SHADED
+      ? "This cell can't be shaded. The puzzle can't be finished with it dark."
+      : "This cell can't stay lit. The puzzle can't be finished with it lit." };
   }
 
   // (3) done: exactly the solution's cells are shaded (every mark is already correct)
@@ -133,6 +130,63 @@ function nextHint(state, numbers, N, solution, lastTap) {
       cellName(pick, N) + (value === SolveCell.BLACK ? " is shaded." : " stays lit.") };
 }
 
+// --- the walk-through: an explanation's chain as board frames ----------------------------
+function walkSuppose(value) { return value === SolveCell.BLACK ? "were shaded" : "stayed lit"; }
+
+// Appends one frame per record of `chain` (nested chains flattened in, depth-first).
+// `base` = the ghosts already on the board when this chain starts; it is never changed.
+// An "assume" record starts a branch afresh from `base` (T5 tries both values in turn), so
+// a branch's ghosts never leak into the next branch or back into the enclosing chain: once
+// a nested chain is told, only the step it concludes stays as a ghost.
+function walkChain(chain, base, depth, frames) {
+  let cur = base, assumes = 0;
+  for (const s of chain) {
+    if (s.rule === "assume") {
+      cur = Object.assign({}, base); cur[s.i] = s.value;
+      let text;
+      if (assumes === 0 && depth === 0) {
+        text = "Suppose this cell " + walkSuppose(s.value) + "… Tap Next to follow what that forces.";
+      } else if (assumes === 0) {
+        text = "To see the next step, try this cell both ways. First, suppose it " + walkSuppose(s.value) + ".";
+      } else {
+        text = "Now suppose this cell " + walkSuppose(s.value) + " instead.";
+      }
+      assumes++;
+      frames.push({ ghosts: cur, focus: [], i: s.i, technique: null, text });
+      continue;
+    }
+    if (s.chain) walkChain(s.chain, cur, depth + 1, frames);
+    cur = Object.assign({}, cur); cur[s.i] = s.value;
+    frames.push({ ghosts: cur, focus: s.evidence.slice(), i: s.i, technique: s.technique || null, text: s.text });
+  }
+  return cur;
+}
+
+/*
+ * walkFrames(exp) -> [{ ghosts: { i: SolveCell value }, focus: number[], i, technique, text }]
+ * The frames a "walk me through it" steps over, for an explanation with a chain (T5/T6).
+ * Frame 0 is the assumption; each following frame adds one step (its own ghost, its own
+ * evidence as `focus`, its own reason); nested T5 chains are flattened in (so the count is
+ * explainChainLength(chain) + 1). The last frame shows the clash (focus = clash.cells) or,
+ * for a T5 "both-ways", the agreed result. `i` is the cell the frame is about (drawn as the
+ * target). Pure: never mutates exp (cached explanations are shared); every frame owns its
+ * ghosts object. The board state is never touched; ghosts are drawn on their own layer.
+ */
+function walkFrames(exp) {
+  const frames = [];
+  if (!exp || !exp.chain || !exp.chain.length) return frames;
+  const last = walkChain(exp.chain, {}, 0, frames);
+  const verdict = exp.value === SolveCell.BLACK ? "this cell must be shaded." : "this cell stays lit.";
+  if (exp.clash) {
+    frames.push({ ghosts: Object.assign({}, last), focus: exp.clash.cells.slice(), i: exp.i, technique: null,
+      text: exp.clash.text + " So the supposition was wrong: " + verdict });
+  } else {
+    const g = {}; g[exp.i] = exp.value;
+    frames.push({ ghosts: g, focus: exp.evidence.slice(), i: exp.i, technique: exp.technique || null, text: exp.text });
+  }
+  return frames;
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { stateToCells, nextHint, distanceTo };
+  module.exports = { stateToCells, nextHint, distanceTo, walkFrames };
 }

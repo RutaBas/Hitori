@@ -12,6 +12,8 @@
  *       tier, until a clash appears or nothing more follows.
  *   pickShortest(entries, lastTap, N)         -> Explanation (shortest chain, nearest, lowest i)
  *   explainChainLength(chain)                 -> frames in a chain, nested chain steps included
+ *   explainDistance(e, lastTap, N)            -> min Manhattan distance from lastTap to e.i or
+ *                                                any evidence cell (0 when lastTap is null)
  *   findClash(cells, numbers, N)              -> Clash | null   (first rule violation)
  *   cellName(i, N)                            -> "row 3, column 5" (1-based)
  *
@@ -323,23 +325,26 @@ function explainChainLength(chain) {
   return n;
 }
 
+// THE distance rule for "nearest the last tap", shared by hints.js (distanceTo): min
+// Manhattan distance from lastTap to e.i or any of e.evidence; 0 when lastTap is null.
+function explainDistance(e, lastTap, N) {
+  if (lastTap == null) return 0;
+  const tr = (lastTap / N) | 0, tc = lastTap - tr * N;
+  let best = Infinity;
+  for (const x of [e.i].concat(e.evidence || [])) {
+    const r = (x / N) | 0, d = Math.abs(r - tr) + Math.abs(x - r * N - tc);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 // Shortest chain first (counting nested steps, see explainChainLength), then nearest to the
 // last tap (Manhattan distance to the target or any evidence cell), then lowest cell index.
 // Entries without a chain count as length 0.
 function pickShortest(entries, lastTap, N) {
-  const dist = (e) => {
-    if (lastTap == null) return 0;
-    const tr = (lastTap / N) | 0, tc = lastTap - tr * N;
-    let best = Infinity;
-    for (const x of [e.i].concat(e.evidence || [])) {
-      const r = (x / N) | 0, d = Math.abs(r - tr) + Math.abs(x - r * N - tc);
-      if (d < best) best = d;
-    }
-    return best;
-  };
   let best = null, bk = null;
   for (const e of entries) {
-    const k = [explainChainLength(e.chain), dist(e), e.i];
+    const k = [explainChainLength(e.chain), explainDistance(e, lastTap, N), e.i];
     if (!bk || k[0] < bk[0] || (k[0] === bk[0] && (k[1] < bk[1] || (k[1] === bk[1] && k[2] < bk[2])))) {
       best = e; bk = k;
     }
@@ -396,5 +401,5 @@ function findClash(cells, numbers, N) {
 const UNKNOWN_ = SolveCell.UNKNOWN, WHITE_ = SolveCell.WHITE, BLACK_ = SolveCell.BLACK;
 
 if (typeof module !== "undefined") {
-  module.exports = { explainTier, traceDeduce, pickShortest, explainChainLength, findClash, cellName };
+  module.exports = { explainTier, traceDeduce, pickShortest, explainChainLength, explainDistance, findClash, cellName };
 }
