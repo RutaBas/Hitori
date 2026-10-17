@@ -6,7 +6,7 @@
  * activate. Same-origin shell is served cache-first; anything else falls through to the
  * network (e.g. the Google Fonts stylesheet).
  */
-const CACHE_NAME = "hitori-v1";
+const CACHE_NAME = "hitori-v2";
 
 const SHELL = [
   "./",
@@ -18,6 +18,12 @@ const SHELL = [
   "js/board.js",
   "js/solver.js",
   "js/generator.js",
+  "js/explain.js",
+  "js/hints.js",
+  "js/progress.js",
+  "js/levels.js",
+  "js/daily.js",
+  "js/stats.js",
   "js/ui.js",
   // NOTE: skyline.svg is NOT listed — its markup is inlined directly into index.html, so
   // the file is a design source, not a runtime asset. Precaching it would make install

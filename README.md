@@ -45,7 +45,14 @@ Solver-first. Game logic is strictly separated from the DOM so it runs headlessl
 | `js/board.js` | Data model: cell states, geometry, serialization |
 | `js/solver.js` | Deductive tiers T1–T6, exhaustive solution counter, hint engine |
 | `js/generator.js` | Puzzle generation + the locked tier config |
+| `js/explain.js` | Explained deductions T1–T6 with evidence cells, traced chains, clash detection |
+| `js/hints.js` | What the Hint button says next: mistakes, deductions, stuck reveals, T5/T6 walk-through frames |
+| `js/progress.js` | Level stars, unlocking, result merging, lingering-mistake tracker, save migration |
+| `js/levels.js` | The frozen level packs (generated — never edited by hand) |
+| `js/daily.js` | Daily puzzle by date, records, streaks, calendar grid |
+| `js/stats.js` | Statistics across free play, levels and daily |
 | `js/ui.js` | Screens, rendering, tap interaction, persistence, win flow |
+| `tools/build-levels.js` | Builds and extends `js/levels.js` in batches |
 
 **Why uniqueness is the hard part:** shading more never violates rule 1, so uniqueness comes
 almost entirely from rules 2 and 3. A naive generator produces puzzles with dozens of
@@ -67,15 +74,28 @@ solutions. Two things guard against that:
 
 ## Features
 
-- Six difficulty tiers, always via the start screen
-- Three-state tap marking, undo, restart
-- **Hints** powered by the solver — reveals the next *logical* deduction and names the
-  technique, never a random answer; corrects a mistake first if you've made one
-- Auto-save (a refresh or app close loses nothing), per-tier stats, timer
+- Home screen with free play, **600 levels** (six tiers of 100, in a stars-and-unlock
+  progression), a **daily puzzle** with streaks and a calendar, all-mode **stats**, rules,
+  settings and an interactive **tutorial**
+- Technique intros introduce each solver technique the first time its tier needs it
+- Three-state tap marking, undo, restart, pause
+- **Explained hints** in three stages — a nudge, the area, then the exact cell — each naming
+  the technique and why it works; never a random answer. A wrong mark is explained and
+  corrected first. The hardest deductions (T5/T6) come with a step-by-step walk-through
+- Auto-save (a refresh or app close loses nothing), timer, stats across every mode
 - Live rule-violation feedback (**off by default** — being stranded later is the point)
 - Win animation: dark cells sink into the night, then light sweeps the connected lit region
   in true BFS order over the actual connectivity graph
 - Shareable emoji-grid result (Wordle-style), installable PWA, works offline
+
+## Adding levels
+
+```bash
+node tools/build-levels.js --batches 2   # appends batch 2 (levels 101-200) to every tier
+```
+
+Existing levels never change: the script keeps every existing batch byte-for-byte and only
+appends new ones, so level numbers stay put and saved progress stays valid.
 
 ## Run locally
 
@@ -89,10 +109,20 @@ python -m http.server 8731
 ## Tests
 
 ```bash
-node test/solver.test.js   # solver + counter + hints (24 assertions)
-node test/sweep.js         # difficulty distribution sweep
-node test/sweep2.js        # 100-puzzles-per-tier batch verification
+for f in test/*.test.js; do node "$f" || exit 1; done   # every suite; each reports "0 failed"
 ```
+
+- `test/solver.test.js` — solver, solution counter, hint engine
+- `test/generator.test.js` — generation, tier config, seeding, round-trips
+- `test/explain.test.js` — explained deductions agree with the solver
+- `test/hints.test.js` — hint stages, mistakes, stuck reveals, timing
+- `test/progress.test.js` — stars, unlocking, mistake tracking
+- `test/levels.test.js` — the frozen level packs
+- `test/daily.test.js` — daily puzzle, records, streaks, calendar
+- `test/stats.test.js` — all-mode statistics
+- `test/save.test.js` — in-progress save shape and migration
+- `test/sweep.js`, `test/sweep2.js` — difficulty distribution and 100-per-tier batch
+  verification (run manually with `node`)
 
 The key test: a Latin square must report **≥2** solutions. Every row and column is already
 all-distinct, so all-lit is valid — but shading the centre of a 3×3 is *also* valid. A counter
@@ -114,7 +144,8 @@ cell on night — the same object as the wordmark's boxed `I`.
 
 Deploy, then open the URL in **Safari** → Share → **Add to Home Screen**.
 
-Bump `CACHE_NAME` in `sw.js` on every deploy — that is the update strategy.
+Bump `CACHE_NAME` in `sw.js` on every deploy (currently `hitori-v2`) — that is the update
+strategy. Add any new `js/` file to its `SHELL` list.
 
 ## Notes
 
