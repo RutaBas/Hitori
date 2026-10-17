@@ -178,7 +178,7 @@ Moving on (any tap on the board) resets to stage 1 for the next hint. Every pres
 
 **Mistakes first, explained.** If the board has a wrong mark, the hint explains what's wrong instead of just naming the cell:
 - If a placed mark breaks a rule right now, name the rule and the cells: "These two shaded cells touch. Shaded cells can't be side by side."
-- Otherwise, if a mark disagrees with the solution but breaks no rule yet, say so gently and point at the earliest such mark: "This cell can't be shaded. The puzzle can't be finished with it dark." There is no deduction chain to show here, and that's acceptable.
+- Otherwise, if a mark disagrees with the solution but breaks no rule yet, say so gently and point at the wrong mark nearest the player's last tap (ties: reading order): "This cell can't be shaded. The puzzle can't be finished with it dark." There is no deduction chain to show here, and that's acceptable.
 
 **Stuck fallback** (shouldn't happen, because every shipped puzzle is T6-solvable): keep the current reveal, worded honestly.
 
