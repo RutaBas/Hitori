@@ -550,20 +550,6 @@ body:not(.no-violations) .cell--shaded.violation {
   font-size: 10.5px;
   color: var(--sodium-light);
 }
-.hint-walk {
-  /* an inline link with a bigger tap area than its text */
-  margin: -8px -4px;
-  padding: 8px 4px;
-  border: none;
-  background: none;
-  font: inherit;
-  font-weight: 500;
-  color: var(--sodium-light);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-
 /* ============================ CONTROLS ================================= */
 /* Thumb row: Undo · Hint · Pause, bigger than the sheet buttons. */
 .controls {
@@ -578,6 +564,9 @@ body:not(.no-violations) .cell--shaded.violation {
 .controls .btn:disabled { opacity: 0.4; cursor: default; }
 /* The walk-through swaps the thumb row for Back · Next · Close · Pause. */
 .controls-walk { display: none; }
+/* Stage 2 of a T5/T6 hint: a Walk button opens the walk-through (full thumb-row size). */
+.controls .btn-walk { display: none; }
+#screen-play.can-walk .controls .btn-walk { display: block; }
 #screen-play.is-walking .controls-play { display: none; }
 #screen-play.is-walking .controls-walk { display: flex; }
 .controls-walk .walk-next { border-color: var(--sodium-light); color: var(--sodium-light); }

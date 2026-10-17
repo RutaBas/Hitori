@@ -742,7 +742,7 @@
       var nodes = document.querySelectorAll("#board .cell." + HINT_CLASSES[k]);
       for (var m = 0; m < nodes.length; m++) nodes[m].classList.remove(HINT_CLASSES[k]);
     }
-    document.getElementById("screen-play").classList.remove("is-walking");
+    document.getElementById("screen-play").classList.remove("is-walking", "can-walk");
   }
   /** Drop the current hint (board changed, restart, new game, win): the rules come back. */
   function clearHint() {
@@ -771,7 +771,7 @@
       body = esc(f.text);
       // Footnote on the first and last frames only, so the step text keeps the room.
       foot = lastF ? "Close to go back to the hint"
-        : k === 0 ? "Ghost marks are a “what if” only. Your board is unchanged." : "";
+        : k === 0 ? "Ghost marks are only a “what if”." : "";
       for (var g in f.ghosts) {
         if (Object.prototype.hasOwnProperty.call(f.ghosts, g)) {
           markCells([+g], f.ghosts[g] === SolveCell.BLACK ? "ghost-shade" : "ghost-lit");
@@ -792,7 +792,12 @@
       } else {
         body = esc(e.text);
         foot = "tap Hint again to " + (e.value === SolveCell.BLACK ? "shade it" : "mark it lit");
-        if (e.chain) foot += ' · <button class="hint-walk" type="button">walk me through it</button>';
+        // T5/T6: a full-size Walk button joins the thumb row (a 44px+ target; an inline
+        // link in the 86px box can't be one).
+        if (e.chain) {
+          foot += ", or Walk to see each step";
+          document.getElementById("screen-play").classList.add("can-walk");
+        }
         markCells(e.evidence, "hint-ev");
         markCells([e.i], "hint-tg");
       }
@@ -1168,6 +1173,7 @@
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") {
+        if (document.getElementById("menu-overlay").classList.contains("is-visible")) { closeMenu(); return; }
         if (App.hint && App.hint.walk && !App.paused) { closeWalk(); return; }
         dismissOverlay(); closeMenu();
       }
@@ -1181,9 +1187,7 @@
     $(".walk-back").addEventListener("click", function () { stepWalk(-1); });
     $(".walk-next").addEventListener("click", function () { stepWalk(1); });
     $(".walk-close").addEventListener("click", closeWalk);
-    document.getElementById("hint-box").addEventListener("click", function (e) {
-      if (e.target.closest(".hint-walk")) openWalk();
-    });
+    $(".btn-walk").addEventListener("click", openWalk);
     $(".hud-home").addEventListener("click", quitToMenu);
     $(".hud-menu").addEventListener("click", openMenu);
 
