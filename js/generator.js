@@ -29,6 +29,31 @@ function mulberry32(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+// String -> uint32 seed (FNV-1a + Murmur3 finalizer; same as TicTacLogic generator.js).
+function hashString(str) {
+  let h = 0x811c9dc5 >>> 0; // FNV-1a offset basis
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193); // FNV prime
+  }
+  h ^= h >>> 16; h = Math.imul(h, 0x45d9f3b);
+  h ^= h >>> 16; h = Math.imul(h, 0x45d9f3b);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+// Compact puzzle string: one base-36 char per cell (values 1..10 -> "1".."9","a").
+function encodeNumbers(numbers) {
+  let s = "";
+  for (let i = 0; i < numbers.length; i++) s += numbers[i].toString(36);
+  return s;
+}
+function decodeNumbers(str) {
+  const out = new Int8Array(str.length);
+  for (let i = 0; i < str.length; i++) out[i] = parseInt(str[i], 36);
+  return out;
+}
+
 function shuffle(arr, rand) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = (rand() * (i + 1)) | 0;
@@ -174,7 +199,7 @@ function generateTier(tier, opts) {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    mulberry32, shuffle,
+    mulberry32, shuffle, hashString, encodeNumbers, decodeNumbers,
     buildPattern, randomLatin, assignNumbers,
     generateCandidate, classify, generatePuzzle,
     TIERS, generateTier,
