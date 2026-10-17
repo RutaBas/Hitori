@@ -159,6 +159,13 @@ try {
     check("pickShortest: tie -> nearest to lastTap", E.pickShortest([b2, c, d], 98, 10) === d);
     check("pickShortest: length beats distance", E.pickShortest([a, b2], 40, 10) === b2);
     check("pickShortest: distance uses evidence too", E.pickShortest([mk(0, 2, [0, 55]), mk(9, 2)], 56, 10).i === 0);
+    // Length counts the frames the player taps through: nested T5 chain steps count too.
+    // `nested` has 3 top-level records, one a T5 step with 4 inner steps -> 3 + 4 = 7 frames.
+    const t5 = { i: 1, rule: "both-ways", tier: 5, chain: new Array(4).fill({}) };
+    const nested = { i: 2, value: WHITE, evidence: [2], chain: [{}, t5, {}] };
+    const flat = mk(50, 5);
+    check("pickShortest: nested T5 steps count toward chain length", E.pickShortest([nested, flat], null, 10) === flat);
+    check("explainChainLength counts nested steps", E.explainChainLength(nested.chain) === 7 && E.explainChainLength(flat.chain) === 5);
   }
 
   // --- soundness on generated puzzles --------------------------------------
@@ -204,7 +211,7 @@ try {
       const c = E.findClash(replay, numbers, N);
       if (!c || c.rule !== e.clash.rule || !sameArr(c.cells, e.clash.cells)) bad6.replay++;
     }
-    const lens = ex.map((e) => e.chain.length);
+    const lens = ex.map((e) => E.explainChainLength(e.chain));
     if (!shortestFixture && ex.length >= 2 && Math.min(...lens) < Math.max(...lens)) {
       shortestFixture = { ex, N, min: Math.min(...lens) };
     }
@@ -276,7 +283,7 @@ try {
   check("pickShortest: a real state with two T6 chains of different length was found", shortestFixture !== null);
   if (shortestFixture) {
     const p = E.pickShortest(shortestFixture.ex, null, shortestFixture.N);
-    check("pickShortest: picks the shorter real T6 chain", p.chain.length === shortestFixture.min);
+    check("pickShortest: picks the shorter real T6 chain", E.explainChainLength(p.chain) === shortestFixture.min);
   }
 } catch (e) {
   check("no exception: " + e.message, false);

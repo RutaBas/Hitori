@@ -11,6 +11,7 @@
  *       mutates cells: one deduction at a time, cheapest tier first, first entry of that
  *       tier, until a clash appears or nothing more follows.
  *   pickShortest(entries, lastTap, N)         -> Explanation (shortest chain, nearest, lowest i)
+ *   explainChainLength(chain)                 -> frames in a chain, nested chain steps included
  *   findClash(cells, numbers, N)              -> Clash | null   (first rule violation)
  *   cellName(i, N)                            -> "row 3, column 5" (1-based)
  *
@@ -314,8 +315,17 @@ function traceDeduce(cells, numbers, N, maxTier) {
   }
 }
 
-// Shortest chain first, then nearest to the last tap (Manhattan distance to the target or
-// any evidence cell), then lowest cell index. Entries without a chain count as length 0.
+// Frames a walk-through steps through: every record, plus (recursively) the steps of any
+// nested chain a record carries (T5 "both-ways" / "dead-end" inside a T6 lookahead).
+function explainChainLength(chain) {
+  let n = 0;
+  for (const s of chain || []) n += 1 + (s && s.chain ? explainChainLength(s.chain) : 0);
+  return n;
+}
+
+// Shortest chain first (counting nested steps, see explainChainLength), then nearest to the
+// last tap (Manhattan distance to the target or any evidence cell), then lowest cell index.
+// Entries without a chain count as length 0.
 function pickShortest(entries, lastTap, N) {
   const dist = (e) => {
     if (lastTap == null) return 0;
@@ -329,7 +339,7 @@ function pickShortest(entries, lastTap, N) {
   };
   let best = null, bk = null;
   for (const e of entries) {
-    const k = [e.chain ? e.chain.length : 0, dist(e), e.i];
+    const k = [explainChainLength(e.chain), dist(e), e.i];
     if (!bk || k[0] < bk[0] || (k[0] === bk[0] && (k[1] < bk[1] || (k[1] === bk[1] && k[2] < bk[2])))) {
       best = e; bk = k;
     }
@@ -386,5 +396,5 @@ function findClash(cells, numbers, N) {
 const UNKNOWN_ = SolveCell.UNKNOWN, WHITE_ = SolveCell.WHITE, BLACK_ = SolveCell.BLACK;
 
 if (typeof module !== "undefined") {
-  module.exports = { explainTier, traceDeduce, pickShortest, findClash, cellName };
+  module.exports = { explainTier, traceDeduce, pickShortest, explainChainLength, findClash, cellName };
 }
