@@ -137,13 +137,25 @@
       </div>
     </div>
 
-    <!-- START SCREEN -->
-    <section id="screen-start" class="screen screen--active">
-      <div class="start-inner">
+    <!-- HOME SCREEN: Continue, Daily, Learn (first run), Levels, Free play, footer.
+         Every screen is a section.screen with id "screen-<name>" (see showScreen). -->
+    <section id="screen-home" class="screen screen--scroll screen--active">
+      <div class="home-inner">
         <div class="wordmark" aria-label="Hitori">
           <span class="wm-letters">HITOR</span><span class="wm-cell">I</span>
         </div>
-        <div id="tier-list" class="tier-list"></div>
+        <div id="home-list" class="home-list"></div>
+      </div>
+    </section>
+
+    <!-- PLACEHOLDER for screens that later tasks build (Levels, Daily, Stats, How to play). -->
+    <section id="screen-soon" class="screen">
+      <header class="topbar">
+        <button class="back-link soon-back">‹ Home</button>
+      </header>
+      <div class="soon-body">
+        <h2 class="soon-title">Coming soon</h2>
+        <p class="soon-text">This part of the game arrives in a later update.</p>
       </div>
     </section>
 
@@ -187,18 +199,17 @@
           <button class="btn btn--secondary menu-new">New puzzle</button>
           <button class="btn btn--secondary menu-quit">Quit to menu</button>
         </div>
-        <div class="settings">
-          <label class="setting-row"><span>Show rule violations</span>
-            <button class="toggle" data-setting="violations" aria-label="Toggle violations"><span class="knob"></span></button></label>
-          <label class="setting-row"><span>Sound</span>
-            <button class="toggle" data-setting="sound" aria-label="Toggle sound"><span class="knob"></span></button></label>
-          <label class="setting-row"><span>Haptics</span>
-            <button class="toggle" data-setting="haptics" aria-label="Toggle haptics"><span class="knob"></span></button></label>
-        </div>
+        <!-- same rows as the home Settings sheet (renderSettingsRows) -->
+        <div class="settings" id="menu-settings"></div>
       </div>
     </div>
 
-    <!-- WIN (placeholder — full animation lands in Step 6) -->
+    <!-- SHEET OVERLAY: Rules, Settings, and later modals (showOverlay / hideOverlay). -->
+    <div id="overlay" class="overlay" role="dialog" aria-modal="true">
+      <div class="sheet" id="overlay-panel"></div>
+    </div>
+
+    <!-- WIN -->
     <div id="win-overlay" class="overlay">
       <div class="win-panel">
         <div class="win-tier">Crowded</div>
@@ -221,6 +232,12 @@
   <script src="js/board.js"></script>
   <script src="js/solver.js"></script>
   <script src="js/generator.js"></script>
+  <script src="js/explain.js"></script>
+  <script src="js/hints.js"></script>
+  <script src="js/progress.js"></script>
+  <script src="js/levels.js"></script>
+  <script src="js/daily.js"></script>
+  <script src="js/stats.js"></script>
   <script src="js/ui.js"></script>
 </body>
 </html>

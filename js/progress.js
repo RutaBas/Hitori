@@ -1,5 +1,5 @@
-/* progress.js — level-pack rules: stars, unlocking, merging results, and the
- * lingering-mistake tracker.
+/* progress.js — level-pack rules: stars, unlocking, merging results, the
+ * lingering-mistake tracker, and the in-progress save shape (migrateSave).
  *
  * Pure and headless (no DOM, no storage). Dual-use: browser <script> globals,
  * node require (see generator.js / hints.js).
@@ -95,10 +95,39 @@ function flagMistake(tracker, i) {
   return tracker;
 }
 
+/*
+ * The in-progress save (hitori.saveState), one shape for all three modes:
+ *   { mode: "free" | "level" | "daily", tier: 1..6, N, numbers, solution, state,
+ *     elapsedMs, moves, hintsUsed, tracker, level?, dailyKey?, startedKey?, savedAt }
+ * migrateSave upgrades a pre-update save ({ tierIndex, tierName, N, numbers, solution,
+ * state, elapsedMs, moves, savedAt }, always free play) and fills missing counters.
+ * Returns a new object, or null when there is nothing resumable. Never mutates `s`.
+ */
+const SAVE_MODES = { free: true, level: true, daily: true };
+
+function migrateSave(s) {
+  if (!s || typeof s !== "object") return null;
+  const out = Object.assign({}, s);
+  if (out.mode === undefined) out.mode = "free";
+  if (out.tier === undefined && out.tierIndex !== undefined) out.tier = out.tierIndex;
+  delete out.tierIndex;
+  delete out.tierName; // the name comes from TIERS[tier]
+  if (!SAVE_MODES[out.mode]) return null;
+  if (!(out.tier >= 1 && out.tier <= 6) || !out.N ||
+      !Array.isArray(out.numbers) || !Array.isArray(out.solution) || !Array.isArray(out.state)) return null;
+  const cells = out.N * out.N;
+  if (out.numbers.length !== cells || out.solution.length !== cells || out.state.length !== cells) return null;
+  if (typeof out.elapsedMs !== "number") out.elapsedMs = 0;
+  if (typeof out.moves !== "number") out.moves = 0;
+  if (typeof out.hintsUsed !== "number") out.hintsUsed = 0;
+  if (!out.tracker || typeof out.tracker !== "object") out.tracker = newMistakeTracker();
+  return out;
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     LEVELS_PER_BATCH, SECTION_SIZE, LINGER_MOVES,
     computeStars, mergeResult, isUnlocked, nextPlayable, tierSummary,
-    newMistakeTracker, trackMove, flagMistake,
+    newMistakeTracker, trackMove, flagMistake, migrateSave,
   };
 }

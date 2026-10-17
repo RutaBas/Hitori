@@ -1,13 +1,22 @@
 /*
- * ui.js — screens, rendering, and tap interaction (Step 4).
+ * ui.js — screens, overlays, rendering, and tap interaction.
  *
- * Owns two screens (start / play) that crossfade while the skyline stays put. Renders the
- * board from a generated puzzle, cycles cell state on tap (unmarked -> shaded -> circled),
- * and handles undo / restart / new puzzle. Depth + motion come from styles.css; this file
- * only toggles classes and drives the model in board.js.
+ * Screens are <section class="screen" id="screen-<name>"> elements that crossfade via
+ * showScreen(name) while the skyline stays put (it only switches between its home and
+ * play treatments). One generic sheet overlay (#overlay) serves Rules, Settings and any
+ * later modal via showOverlay(html) / hideOverlay(); the in-game menu and the win panel
+ * keep their own overlays.
  *
- * Deferred hooks (left intentionally minimal): win animation -> Step 6, "city goes to
- * sleep" window fading -> Step 8, hints -> Step 5, auto-save/stats -> Step 6.
+ * Every game, whatever its mode, starts or resumes through startGame(cfg):
+ *   cfg = { mode: "free" | "level" | "daily", tier: 1..6, N, numbers, solution,
+ *           level?, dailyKey?, startedKey? }
+ *   plus, to RESUME a saved game, the save's { state, elapsedMs, moves, hintsUsed, tracker }.
+ * The in-progress save (hitori.saveState) has the shape documented on migrateSave in
+ * js/progress.js; old pre-update saves are upgraded by migrateSave before use.
+ *
+ * Depth + motion come from styles.css; this file only toggles classes and drives the
+ * model in board.js. Game logic lives in the headless modules (rules, board, solver,
+ * generator, explain, hints, progress, levels, daily, stats).
  */
 (function () {
   "use strict";
@@ -16,15 +25,24 @@
     settings: "hitori.settings",
     stats: "hitori.stats",
     save: "hitori.saveState",
+    levels: "hitori.levels",
+    daily: "hitori.daily",
+    tutorialDone: "hitori.tutorialDone",
   };
 
   var App = {
     board: null,          // Board instance (board.js)
     solution: null,       // Int8Array shaded mask of the unique solution
     N: 0,
-    tierIndex: null,
-    tierName: "",
+    mode: "free",         // "free" | "level" | "daily"
+    tier: null,           // ladder tier 1..6
+    level: null,          // level number (mode "level")
+    dailyKey: null,       // "YYYY-MM-DD" of the daily puzzle (mode "daily")
+    startedKey: null,     // local day the daily attempt began (onTime = startedKey === dailyKey)
+    title: "",            // HUD / win / share title
     moves: 0,
+    hintsUsed: 0,         // every Hint press this attempt (stars)
+    tracker: null,        // lingering-mistake tracker (progress.js)
     undoStack: [],        // [{ i, prev }]
     won: false,
     lastTap: null,        // index of the last tapped cell (win sweep origin)
@@ -32,7 +50,6 @@
     startedAt: 0,
     baseMs: 0,            // accumulated elapsed ms (survives resume)
     settings: null,
-    activeUnsolvedTier: null, // tier of an in-progress game (for streak/abandon logic)
     hintTimer: null,
     winOrder: [],         // skyline windows, nearest-first (city-goes-to-sleep order)
     darkCount: 0,         // how many windows are currently darkened
@@ -57,6 +74,21 @@
     var m = Math.floor(s / 60);
     s = s % 60;
     return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+  /** "Sat 17 Oct" for a "YYYY-MM-DD" key. */
+  function fmtDay(key) {
+    var d = parseKey(key);
+    var wd = d.toLocaleDateString("en-GB", { weekday: "short" });
+    var mon = d.toLocaleDateString("en-GB", { month: "short" });
+    return wd + " " + d.getDate() + " " + mon;
+  }
+  function tierName(t) { return TIERS[t] ? TIERS[t].name : ""; }
+  function sizeLabel(n) { return n + "×" + n; }
+  /** HUD / win title: tier name, "Hushed · Level 23" or "Daily · Sat 17 Oct". */
+  function gameTitle(mode, tier, level, dailyKey) {
+    if (mode === "level") return tierName(tier) + " · Level " + level;
+    if (mode === "daily") return "Daily · " + fmtDay(dailyKey);
+    return tierName(tier);
   }
 
   // ---- feedback: sound + haptics -------------------------------------------
@@ -113,106 +145,271 @@
   }
 
   // ---- persistence: auto-save + stats ---------------------------------------
+  /** The in-progress save; shape documented on migrateSave (js/progress.js). */
   function saveGame() {
     if (!App.board || App.won) return;
-    writeJSON(LS.save, {
-      tierIndex: App.tierIndex, tierName: App.tierName, N: App.N,
+    var s = {
+      mode: App.mode, tier: App.tier, N: App.N,
       numbers: Array.from(App.board.numbers),
       solution: Array.from(App.solution),
       state: Array.from(App.board.state),
-      elapsedMs: currentMs(), moves: App.moves, savedAt: Date.now(),
-    });
+      elapsedMs: currentMs(), moves: App.moves,
+      hintsUsed: App.hintsUsed, tracker: App.tracker,
+      savedAt: Date.now(),
+    };
+    if (App.level != null) s.level = App.level;
+    if (App.dailyKey != null) s.dailyKey = App.dailyKey;
+    if (App.startedKey != null) s.startedKey = App.startedKey;
+    writeJSON(LS.save, s);
   }
   function clearSave() { try { localStorage.removeItem(LS.save); } catch (e) {} }
+  /** The resumable save in the current shape (old saves migrated), or null. */
+  function loadSave() { return migrateSave(readJSON(LS.save, null)); }
 
+  // Free-play records (hitori.stats). Levels and dailies never touch them.
   function blankStats() { return { played: 0, won: 0, bestMs: 0, sumMs: 0, currentStreak: 0, bestStreak: 0 }; }
   function statsFor(t) { var s = readJSON(LS.stats, {}); return s[t] || blankStats(); }
+  /** Starting a new game over an unsolved free-play save abandons it: that tier's streak breaks. */
+  function recordAbandon(prev) {
+    if (!prev || prev.mode !== "free") return;
+    var s = readJSON(LS.stats, {});
+    var e = s[prev.tier] || (s[prev.tier] = blankStats());
+    e.currentStreak = 0;
+    writeJSON(LS.stats, s);
+  }
   function recordStart(t) {
     var s = readJSON(LS.stats, {});
-    // Abandoning an unsolved game breaks that tier's win streak.
-    if (App.activeUnsolvedTier != null) {
-      var prev = s[App.activeUnsolvedTier] || (s[App.activeUnsolvedTier] = blankStats());
-      prev.currentStreak = 0;
-    }
     var e = s[t] || (s[t] = blankStats());
     e.played++;
-    App.activeUnsolvedTier = t;
     writeJSON(LS.stats, s);
   }
   function recordWin() {
     var s = readJSON(LS.stats, {});
-    var e = s[App.tierIndex] || (s[App.tierIndex] = blankStats());
+    var e = s[App.tier] || (s[App.tier] = blankStats());
     var ms = currentMs();
     e.won++; e.sumMs += ms;
     if (!e.bestMs || ms < e.bestMs) e.bestMs = ms;
     e.currentStreak = (e.currentStreak || 0) + 1;
     if (e.currentStreak > e.bestStreak) e.bestStreak = e.currentStreak;
-    App.activeUnsolvedTier = null;
     writeJSON(LS.stats, s);
   }
 
-  // ---- screen switching (crossfade; skyline stays) --------------------------
+  // ---- screens (crossfade; skyline stays) + the generic overlay -------------
+  /** Show section#screen-<name>; every other section.screen fades out. */
   function showScreen(name) {
-    var start = document.getElementById("screen-start");
-    var play = document.getElementById("screen-play");
-    var isStart = name === "start";
-    start.classList.toggle("screen--active", isStart);
-    play.classList.toggle("screen--active", !isStart);
-    setSkyline(isStart ? "start" : "play");
+    var screens = document.querySelectorAll("section.screen");
+    for (var k = 0; k < screens.length; k++) {
+      screens[k].classList.toggle("screen--active", screens[k].id === "screen-" + name);
+    }
+    setSkyline(name === "play" ? "play" : "start");
+  }
+  /** Fill the sheet overlay with html and show it. [data-close] inside closes it. */
+  function showOverlay(html) {
+    document.getElementById("overlay-panel").innerHTML = html;
+    document.getElementById("overlay").classList.add("is-visible");
+  }
+  function hideOverlay() {
+    document.getElementById("overlay").classList.remove("is-visible");
+  }
+
+  /** Stand-in screen for parts built in later tasks (Levels, Daily, Stats, How to play). */
+  function showSoon(title) {
+    $(".soon-title").textContent = title;
+    hideOverlay();
+    showScreen("soon");
+  }
+  function goHome() {
+    hideOverlay();
+    renderHome();
+    showScreen("home");
   }
 
   // ==========================================================================
-  // START SCREEN
+  // HOME SCREEN (spec §1 Home: Continue, Daily, Learn, Levels, Free play, footer)
   // ==========================================================================
-  function renderStart() {
-    var list = document.getElementById("tier-list");
-    list.innerHTML = "";
-    var stats = readJSON(LS.stats, {});
+  function continueSubtitle(s) {
+    var parts = [];
+    if (s.mode === "daily") parts.push("Daily", fmtDay(s.dailyKey));
+    else {
+      parts.push(tierName(s.tier));
+      if (s.mode === "level") parts.push("Level " + s.level);
+    }
+    parts.push(sizeLabel(s.N), fmtTime(s.elapsedMs || 0));
+    return parts.join(" · ");
+  }
 
-    // Continue button (only when an in-progress save exists — wired up in Step 6).
-    var save = readJSON(LS.save, null);
-    if (save && save.tierIndex) {
-      var cont = el("button", "tier tier--continue");
-      cont.innerHTML = '<span class="tier-name">Continue</span>' +
-        '<span class="tier-meta">' + (save.tierName || "") + " &middot; " + (save.N || "") + "×" + (save.N || "") +
-        " &middot; " + fmtTime(save.elapsedMs || 0) + "</span>";
-      cont.addEventListener("click", resumeSaved);
-      list.appendChild(cont);
+  function arrow(cls) { return '<span class="hc-arrow' + (cls ? " " + cls : "") + '" aria-hidden="true">→</span>'; }
+
+  function renderHome() {
+    var list = document.getElementById("home-list");
+    var html = "";
+
+    // 1. Continue — only when a resumable save exists.
+    var save = loadSave();
+    if (save) {
+      html += '<button class="home-card home-card--continue" data-nav="continue">' +
+        '<span class="hc-text"><span class="hc-main">Continue</span>' +
+        '<span class="hc-sub">' + continueSubtitle(save) + "</span></span>" + arrow() + "</button>";
     }
 
+    // 2. Daily — tear-off calendar tile, today's size and the streak.
+    var today = dateKey(new Date());
+    var drec = readJSON(LS.daily, {});
+    var dTier = dailyTier(today), dN = TIERS[dTier].size;
+    var streak = currentStreak(drec, today);
+    var tday = parseKey(today);
+    var dSub = fmtDay(today) + " · " + (drec[today] ? "solved ✓ · new one tomorrow" : sizeLabel(dN)) +
+      (streak ? " · 🔥 " + streak : "");
+    html += '<button class="home-card home-card--daily" data-nav="daily">' +
+      '<span class="dc-tile" aria-hidden="true"><span class="dc-mon">' +
+      tday.toLocaleDateString("en-GB", { month: "short" }).toUpperCase() + '</span>' +
+      '<span class="dc-day">' + tday.getDate() + "</span></span>" +
+      '<span class="hc-text"><span class="hc-main">Daily puzzle</span>' +
+      '<span class="hc-sub">' + dSub + "</span></span>" + arrow() + "</button>";
+
+    // 3. First run only, until the tutorial is finished or skipped.
+    if (!readJSON(LS.tutorialDone, false)) {
+      html += '<button class="home-card home-card--learn" data-nav="howto">' +
+        '<span class="hc-badge" aria-hidden="true">?</span>' +
+        '<span class="hc-text"><span class="hc-main">New here? Learn to play</span>' +
+        '<span class="hc-sub">three rules, two minutes</span></span>' + arrow() + "</button>";
+    }
+
+    // 4. Levels — every tier's progress, summed.
+    var lp = readJSON(LS.levels, {});
+    var total = 0, solved = 0, stars = 0;
     for (var t = 1; t <= 6; t++) {
-      var cfg = TIERS[t];
-      var best = stats[t] && stats[t].bestMs ? fmtTime(stats[t].bestMs) : "—";
-      var b = el("button", "tier");
-      b.setAttribute("data-tier", t);
-      b.innerHTML =
-        '<span class="tier-name">' + cfg.name + "</span>" +
-        '<span class="tier-meta"><span class="tier-size">' + cfg.size + "×" + cfg.size + "</span>" +
-        '<span class="tier-best">' + best + "</span></span>";
-      b.addEventListener("click", makeTierHandler(t, b));
-      list.appendChild(b);
+      var count = levelCount(t);
+      var sum = tierSummary(lp[t], count);
+      total += count; solved += sum.solved; stars += sum.stars;
+    }
+    var pct = solved ? Math.max(2, Math.round((100 * solved) / total)) : 0;
+    html += '<button class="home-card home-card--levels" data-nav="levels">' +
+      '<span class="hc-badge" aria-hidden="true">★</span>' +
+      '<span class="hc-text"><span class="hc-main">Levels</span>' +
+      '<span class="hc-sub">' + solved + " / " + total + " solved · ★ " + stars + "</span>" +
+      '<span class="lv-bar" aria-hidden="true"><span style="width:' + pct + '%"></span></span></span>' +
+      arrow() + "</button>";
+
+    // 5. Free play — the six tiers as before (name, size, best time).
+    html += '<div class="section-label">Free play</div><div class="tier-list">';
+    var fstats = readJSON(LS.stats, {});
+    for (var ft = 1; ft <= 6; ft++) {
+      var best = fstats[ft] && fstats[ft].bestMs ? fmtTime(fstats[ft].bestMs) : "—";
+      html += '<button class="tier" data-tier="' + ft + '">' +
+        '<span class="tier-name">' + TIERS[ft].name + "</span>" +
+        '<span class="tier-meta"><span class="tier-size">' + sizeLabel(TIERS[ft].size) + "</span>" +
+        '<span class="tier-best">' + best + "</span></span></button>";
+    }
+    html += "</div>";
+
+    // 6. Footer.
+    html += '<nav class="home-footer">' +
+      '<button data-nav="howto">How to play</button>' +
+      '<button data-nav="rules">Rules</button>' +
+      '<button data-nav="stats">Stats</button>' +
+      '<button data-nav="settings">Settings</button></nav>';
+
+    list.innerHTML = html;
+  }
+
+  function onHomeClick(ev) {
+    var tierBtn = ev.target.closest(".tier[data-tier]");
+    if (tierBtn) { onTierTap(tierBtn); return; }
+    var nav = ev.target.closest("[data-nav]");
+    if (!nav) return;
+    switch (nav.getAttribute("data-nav")) {
+      case "continue": resumeSaved(); break;
+      case "daily": showSoon("Daily puzzle"); break;   // Task 13
+      case "levels": showSoon("Levels"); break;        // Task 12
+      case "stats": showSoon("Stats"); break;          // Task 14
+      case "howto": showSoon("How to play"); break;    // Task 15
+      case "rules": openRules(); break;
+      case "settings": openSettings(); break;
     }
   }
 
-  function makeTierHandler(t, btn) {
-    return function () {
-      if (btn.classList.contains("is-working")) return;
-      btn.classList.add("is-working");
-      var name = btn.querySelector(".tier-name");
-      var prev = name.textContent;
-      name.textContent = "Building…";
-      // Yield a frame so the label paints before the (synchronous) generator runs.
-      setTimeout(function () {
-        startTier(t);
-        name.textContent = prev;
-        btn.classList.remove("is-working");
-      }, 20);
-    };
+  function onTierTap(btn) {
+    if (btn.classList.contains("is-working")) return;
+    var t = parseInt(btn.getAttribute("data-tier"), 10);
+    btn.classList.add("is-working");
+    var name = btn.querySelector(".tier-name");
+    var prev = name.textContent;
+    name.textContent = "Building…";
+    // Yield a frame so the label paints before the (synchronous) generator runs.
+    setTimeout(function () {
+      startTier(t);
+      name.textContent = prev;
+      btn.classList.remove("is-working");
+    }, 20);
+  }
+
+  // ---- Rules + Settings overlays -------------------------------------------
+  function openRules() {
+    showOverlay(
+      '<div class="sheet-head"><span class="sheet-title">The rules</span>' +
+      '<button class="sheet-x" data-close aria-label="Close">✕</button></div>' +
+      '<ol class="rules-list">' +
+      "<li>Shade cells so that no number repeats among the <b>lit</b> cells of any row or column.</li>" +
+      "<li>Shaded cells never touch side by side (corners are fine).</li>" +
+      "<li>All lit cells stay connected in one piece.</li>" +
+      "</ol>" +
+      '<p class="rules-note">Every puzzle has one answer, reachable by logic alone.</p>' +
+      '<div class="sheet-buttons">' +
+      '<button class="btn btn--secondary" data-nav="howto">Tutorial</button>' +
+      '<button class="btn btn--primary" data-close>Got it</button></div>');
+  }
+
+  /** The settings rows, shared by the home Settings sheet and the in-game menu. */
+  function renderSettingsRows() {
+    function row(key, label) {
+      var on = !!App.settings[key];
+      return '<div class="setting-row"><span>' + label + "</span>" +
+        '<button class="toggle' + (on ? " is-on" : "") + '" data-setting="' + key +
+        '" role="switch" aria-checked="' + on + '" aria-label="' + label + '"><span class="knob"></span></button></div>';
+    }
+    return row("violations", "Show rule violations") + row("sound", "Sound") + row("haptics", "Haptics") +
+      '<div class="setting-row"><span>Version</span><span class="setting-value app-version">…</span></div>';
+  }
+
+  /* The installed version = the service worker's cache name (sw.js CACHE_NAME, e.g.
+   * "hitori-v2"). sw.js deletes older caches on activate, so the newest one present is
+   * what this device runs; reading it keeps the number in exactly one place. */
+  function showAppVersion() {
+    var els = document.querySelectorAll(".app-version");
+    function set(txt) { for (var k = 0; k < els.length; k++) els[k].textContent = txt; }
+    if (!els.length) return;
+    if (!window.caches) { set("not installed"); return; }
+    caches.keys().then(function (keys) {
+      var nums = keys.map(function (k) { var m = /^hitori-v(\d+)$/.exec(k); return m ? +m[1] : 0; })
+        .filter(Boolean);
+      set(nums.length ? "v" + Math.max.apply(null, nums) : "not installed");
+    }, function () { set("unknown"); });
+  }
+
+  function openSettings() {
+    showOverlay(
+      '<div class="sheet-head"><span class="sheet-title">Settings</span>' +
+      '<button class="sheet-x" data-close aria-label="Close">✕</button></div>' +
+      '<div class="settings">' + renderSettingsRows() + "</div>" +
+      '<div class="sheet-buttons"><button class="btn btn--primary" data-close>Close</button></div>');
+    showAppVersion();
+  }
+
+  function toggleSetting(key) {
+    App.settings[key] = !App.settings[key];
+    saveSettings();
+    syncSettingsUi();
+    if (key === "violations") {
+      document.body.classList.toggle("no-violations", !App.settings.violations);
+      if (App.board && !App.won) { if (App.settings.violations) showViolations(); else clearViolations(); }
+    }
   }
 
   // ==========================================================================
   // PLAY: build + render
   // ==========================================================================
+  /** Free play: generate a fresh puzzle for ladder tier t and start it. */
   function startTier(t) {
     var puzzle = generateTier(t);
     if (!puzzle || puzzle.failed) {
@@ -220,62 +417,64 @@
       puzzle = generateTier(t);
       if (!puzzle || puzzle.failed) { alert("Could not build a puzzle — please try again."); return; }
     }
-    recordStart(t);
-    App.board = new Board(puzzle.N, puzzle.numbers);
-    App.solution = puzzle.solution;
-    App.N = puzzle.N;
-    App.tierIndex = t;
-    App.tierName = puzzle.name;
-    App.moves = 0;
+    startGame({ mode: "free", tier: t, N: puzzle.N, numbers: puzzle.numbers, solution: puzzle.solution });
+  }
+
+  /**
+   * The single entry point for every game (free, level, daily), new or resumed.
+   * cfg = { mode, tier, N, numbers, solution, level?, dailyKey?, startedKey? }; a cfg that
+   * also carries `state` (a migrated save) resumes with its elapsedMs, moves, hintsUsed and
+   * tracker instead of starting fresh.
+   */
+  function startGame(cfg) {
+    var resume = !!cfg.state;
+    if (!resume) {
+      recordAbandon(loadSave());              // overwriting an unsolved free game breaks its streak
+      if (cfg.mode === "free") recordStart(cfg.tier);
+    }
+    clearHint();
+    App.mode = cfg.mode || "free";
+    App.tier = cfg.tier;
+    App.level = cfg.level != null ? cfg.level : null;
+    App.dailyKey = cfg.dailyKey || null;
+    App.startedKey = cfg.startedKey || null;
+    App.title = gameTitle(App.mode, App.tier, App.level, App.dailyKey);
+    App.board = new Board(cfg.N, cfg.numbers, resume ? cfg.state : undefined);
+    App.solution = Int8Array.from(cfg.solution);
+    App.N = cfg.N;
+    App.moves = resume ? cfg.moves || 0 : 0;
+    App.hintsUsed = resume ? cfg.hintsUsed || 0 : 0;
+    App.tracker = resume && cfg.tracker ? cfg.tracker : newMistakeTracker();
     App.undoStack = [];
     App.won = false;
     App.lastTap = null;
-    App.baseMs = 0;
+    App.baseMs = resume ? cfg.elapsedMs || 0 : 0;
+    App.startedAt = 0;
 
     // HUD
-    $(".hud-tier").textContent = App.tierName;
-    $(".hud-size").textContent = App.N + "×" + App.N;
+    $(".hud-tier").textContent = App.title;
+    $(".hud-size").textContent = sizeLabel(App.N);
     document.getElementById("win-overlay").classList.remove("is-visible");
     document.getElementById("skyline").classList.remove("skyline--asleep");
+    hideOverlay();
+    closeMenu();
 
     buildBoardDom();
     renderAllCells();
-    resetCitySleep();      // fresh board: the whole city is awake again
-    startTimer();
+    resetCitySleep();        // the whole city is awake again...
+    updateCitySleep();       // ...minus one window per shaded cell on a resumed board
+    if (App.settings.violations) showViolations();
+    startTimer();            // resumes from baseMs
     showScreen("play");
     sizeBoard();
     saveGame();
   }
 
-  // Resume the in-progress game from localStorage (Continue button).
+  // Resume the in-progress game from localStorage (Continue card).
   function resumeSaved() {
-    var s = readJSON(LS.save, null);
-    if (!s) return;
-    App.board = new Board(s.N, s.numbers, s.state);
-    App.solution = Int8Array.from(s.solution);
-    App.N = s.N;
-    App.tierIndex = s.tierIndex;
-    App.tierName = s.tierName;
-    App.moves = s.moves || 0;
-    App.undoStack = [];
-    App.won = false;
-    App.lastTap = null;
-    App.baseMs = s.elapsedMs || 0;
-    App.activeUnsolvedTier = s.tierIndex;
-
-    $(".hud-tier").textContent = App.tierName;
-    $(".hud-size").textContent = App.N + "×" + App.N;
-    document.getElementById("win-overlay").classList.remove("is-visible");
-    document.getElementById("skyline").classList.remove("skyline--asleep");
-
-    buildBoardDom();
-    renderAllCells();
-    resetCitySleep();
-    updateCitySleep();       // reflect the resumed shaded count
-    App.startedAt = 0;       // baseMs already holds elapsed; startTimer resumes from there
-    startTimer();
-    showScreen("play");
-    sizeBoard();
+    var s = loadSave();
+    if (!s) { renderHome(); return; }
+    startGame(s);
   }
 
   function buildBoardDom() {
@@ -336,6 +535,7 @@
     App.undoStack.push({ i: i, prev: prev });
     App.moves++;
     App.lastTap = i;
+    trackMove(App.tracker, App.board.state, App.solution);
 
     // Feedback per the DESIGN map.
     if (next === CellState.SHADED) {
@@ -369,6 +569,7 @@
     App.board.setState(m.i, m.prev);
     App.moves++;
     App.lastTap = m.i;
+    trackMove(App.tracker, App.board.state, App.solution);
     Sound.click(); haptic(10);
     renderCell(m.i);
     updateCitySleep();
@@ -381,6 +582,8 @@
     for (var i = 0; i < App.N * App.N; i++) App.board.setState(i, CellState.UNMARKED);
     App.undoStack = [];
     App.moves = 0;
+    App.hintsUsed = 0;                    // a restart is a fresh attempt (spec: stars)
+    App.tracker = newMistakeTracker();
     App.won = false;
     App.lastTap = null;
     document.getElementById("win-overlay").classList.remove("is-visible");
@@ -394,16 +597,20 @@
     App.baseMs = 0;
     startTimer();
     closeMenu();
+    saveGame();
   }
 
-  function newPuzzle() { closeMenu(); startTier(App.tierIndex); }
+  // Free play only: another puzzle of the same tier. Level/daily "next" flows are Tasks 12/13.
+  function newPuzzle() {
+    closeMenu();
+    if (App.mode === "free") startTier(App.tier); else quitToMenu();
+  }
 
   function quitToMenu() {
     stopTimer();
     saveGame();        // no-op after a win (save already cleared); keeps mid-game resumable
     closeMenu();
-    renderStart();     // re-reads the save so Continue appears when a game is in progress
-    showScreen("start");
+    goHome();          // re-renders home, so Continue appears when a game is in progress
   }
 
   // ---- violation feedback (only when the setting is ON) ---------------------
@@ -466,6 +673,8 @@
   }
   function showHint() {
     if (App.won || !App.board) return;
+    App.hintsUsed++;          // every press counts (stars); Task 11 brings the staged hints
+    saveGame();
     var N = App.N, st = App.board.state, sol = App.solution;
 
     // 1. Correct a player mistake before offering a deduction — a deductive hint on an
@@ -501,7 +710,7 @@
     }
   }
 
-  // ---- win (placeholder; full animation is Step 6) --------------------------
+  // ---- win ------------------------------------------------------------------
   function isSolved() {
     var st = App.board.state, sol = App.solution;
     for (var i = 0; i < App.N * App.N; i++) {
@@ -514,7 +723,7 @@
     if (!isSolved()) return;
     App.won = true;
     stopTimer();
-    recordWin();
+    if (App.mode === "free") recordWin();   // level/daily records: Tasks 12/13
     clearSave();
     runWinAnimation();
   }
@@ -566,11 +775,15 @@
   }
 
   function showWinOverlay() {
-    document.querySelector(".win-tier").textContent = App.tierName;
+    document.querySelector(".win-tier").textContent = App.title;
     document.querySelector(".win-time").textContent = fmtTime(currentMs());
-    var s = statsFor(App.tierIndex);
-    document.querySelector(".win-extra").textContent =
-      "best " + (s.bestMs ? fmtTime(s.bestMs) : "—") + " · streak " + (s.currentStreak || 0);
+    var extra = "";
+    if (App.mode === "free") {
+      var s = statsFor(App.tier);
+      extra = "best " + (s.bestMs ? fmtTime(s.bestMs) : "—") + " · streak " + (s.currentStreak || 0);
+    }
+    document.querySelector(".win-extra").textContent = extra;
+    $(".win-again").style.display = App.mode === "free" ? "" : "none";
     document.getElementById("win-overlay").classList.add("is-visible");
   }
 
@@ -590,22 +803,29 @@
 
   // ---- menu -----------------------------------------------------------------
   function openMenu() {
+    document.getElementById("menu-settings").innerHTML = renderSettingsRows();
+    showAppVersion();
+    var stats = "";
+    if (App.mode === "free") {
+      var s = statsFor(App.tier);
+      var rate = s.played ? Math.round((100 * s.won) / s.played) : 0;
+      var avg = s.won ? fmtTime(Math.round(s.sumMs / s.won)) : "—";
+      stats = App.title + " — played " + s.played + " · won " + s.won + " (" + rate + "%)<br>" +
+        "best " + (s.bestMs ? fmtTime(s.bestMs) : "—") + " · avg " + avg +
+        " · streak " + (s.currentStreak || 0) + " (best " + (s.bestStreak || 0) + ")";
+    }
+    document.querySelector(".menu-stats").innerHTML = stats;
+    $(".menu-new").style.display = App.mode === "free" ? "" : "none";
     document.getElementById("menu-overlay").classList.add("is-visible");
-    syncSettingsUi();
-    var s = statsFor(App.tierIndex);
-    var rate = s.played ? Math.round((100 * s.won) / s.played) : 0;
-    var avg = s.won ? fmtTime(Math.round(s.sumMs / s.won)) : "—";
-    document.querySelector(".menu-stats").innerHTML =
-      App.tierName + " — played " + s.played + " · won " + s.won + " (" + rate + "%)<br>" +
-      "best " + (s.bestMs ? fmtTime(s.bestMs) : "—") + " · avg " + avg +
-      " · streak " + (s.currentStreak || 0) + " (best " + (s.bestStreak || 0) + ")";
   }
   function closeMenu() { document.getElementById("menu-overlay").classList.remove("is-visible"); }
   function syncSettingsUi() {
-    ["violations", "sound", "haptics"].forEach(function (key) {
-      var t = document.querySelector('.toggle[data-setting="' + key + '"]');
-      if (t) t.classList.toggle("is-on", !!App.settings[key]);
-    });
+    var toggles = document.querySelectorAll(".toggle[data-setting]");
+    for (var k = 0; k < toggles.length; k++) {
+      var on = !!App.settings[toggles[k].getAttribute("data-setting")];
+      toggles[k].classList.toggle("is-on", on);
+      toggles[k].setAttribute("aria-checked", on);
+    }
   }
 
   // ---- "the city goes to sleep": window fading ------------------------------
@@ -634,7 +854,7 @@
       for (var c = 0; c < N; c++) row += sol[r * N + c] ? "⬛" : "⬜";
       lines.push(row);
     }
-    var text = "Hitori — " + App.tierName + " " + N + "×" + N + "\n" + fmtTime(currentMs()) + "\n\n" + lines.join("\n");
+    var text = "Hitori — " + App.title + " " + N + "×" + N + "\n" + fmtTime(currentMs()) + "\n\n" + lines.join("\n");
     var btn = document.querySelector(".win-share");
     function done(ok) { btn.textContent = ok ? "Copied!" : "Copy failed"; setTimeout(function () { btn.textContent = "Share"; }, 1600); }
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -678,8 +898,19 @@
     App.winOrder = Array.prototype.slice.call(document.querySelectorAll("#skyline .win")).reverse();
 
     setupSplash();
-    renderStart();
-    showScreen("start");
+    renderHome();
+    showScreen("home");
+
+    // Home cards, tiers and footer; the sheet overlay can route too (Rules -> Tutorial).
+    document.getElementById("home-list").addEventListener("click", onHomeClick);
+    $(".soon-back").addEventListener("click", goHome);
+    document.getElementById("overlay").addEventListener("click", function (e) {
+      if (e.target.id === "overlay" || e.target.closest("[data-close]")) { hideOverlay(); return; }
+      onHomeClick(e);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { hideOverlay(); closeMenu(); }
+    });
 
     document.getElementById("board").addEventListener("click", onBoardClick);
     $(".btn-undo").addEventListener("click", undo);
@@ -695,20 +926,11 @@
       if (e.target.id === "menu-overlay") closeMenu();
     });
 
-    // Settings toggles
-    var toggles = document.querySelectorAll(".toggle[data-setting]");
-    for (var k = 0; k < toggles.length; k++) {
-      toggles[k].addEventListener("click", function () {
-        var key = this.getAttribute("data-setting");
-        App.settings[key] = !App.settings[key];
-        saveSettings();
-        syncSettingsUi();
-        if (key === "violations") {
-          document.body.classList.toggle("no-violations", !App.settings.violations);
-          if (App.settings.violations) showViolations(); else clearViolations();
-        }
-      });
-    }
+    // Settings toggles, wherever their rows are rendered (home sheet or in-game menu).
+    document.addEventListener("click", function (e) {
+      var t = e.target.closest ? e.target.closest(".toggle[data-setting]") : null;
+      if (t) toggleSetting(t.getAttribute("data-setting"));
+    });
 
     // Win overlay actions
     $(".win-again").addEventListener("click", function () { newPuzzle(); });
@@ -716,6 +938,10 @@
     $(".win-menu").addEventListener("click", quitToMenu);
 
     window.addEventListener("resize", sizeBoard);
+    // Keep the clock in the save when the app is hidden or closed (Task 10 turns this
+    // into a real auto-pause).
+    window.addEventListener("pagehide", saveGame);
+    document.addEventListener("visibilitychange", function () { if (document.hidden) saveGame(); });
 
     // PWA service worker (cache-first app shell).
     if ("serviceWorker" in navigator) {
