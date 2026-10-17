@@ -48,7 +48,8 @@
     lastTap: null,        // index of the last tapped cell (win sweep origin)
     timerId: null,
     startedAt: 0,
-    baseMs: 0,            // accumulated elapsed ms (survives resume)
+    baseMs: 0,            // accumulated elapsed ms (survives resume; paused time never lands here)
+    paused: false,        // pauseGame(): clock stopped, board hidden, Paused overlay up
     settings: null,
     hintTimer: null,
     winOrder: [],         // skyline windows, nearest-first (city-goes-to-sleep order)
@@ -448,12 +449,14 @@
     App.undoStack = [];
     App.won = false;
     App.lastTap = null;
-    App.baseMs = resume ? cfg.elapsedMs || 0 : 0;
     App.startedAt = 0;
+    App.baseMs = resume ? cfg.elapsedMs || 0 : 0;
+    setPaused(false);
 
     // HUD
     $(".hud-tier").textContent = App.title;
     $(".hud-size").textContent = sizeLabel(App.N);
+    updateHudSub();
     document.getElementById("win-overlay").classList.remove("is-visible");
     document.getElementById("skyline").classList.remove("skyline--asleep");
     hideOverlay();
@@ -512,20 +515,34 @@
   }
   function renderAllCells() { for (var i = 0; i < App.N * App.N; i++) renderCell(i); }
 
+  /** Fit the square board to the flexible middle zone: the smaller of its width and height. */
   function sizeBoard() {
     var board = document.getElementById("board");
-    if (!board || !App.N) return;
-    var w = board.clientWidth;
-    if (!w) return;
-    var cell = w / App.N;
-    board.style.fontSize = Math.round(cell * 0.46) + "px";
+    var zone = board && board.parentNode;
+    if (!board || !zone || !App.N) return;
+    var size = Math.floor(Math.min(zone.clientWidth, zone.clientHeight));
+    if (size <= 0) return;
+    board.style.width = size + "px";
+    board.style.height = size + "px";
+    board.style.fontSize = Math.round((size / App.N) * 0.46) + "px";
+  }
+
+  /** Sub-row: stars still in play (levels and daily only) and the move count. */
+  function updateHudSub() {
+    var stars = "";
+    if (App.mode !== "free" && App.tracker) {
+      var n = computeStars(App.hintsUsed, App.tracker.mistakes || 0);
+      stars = "★★★".slice(0, n) + "☆☆☆".slice(0, 3 - n) + " in play";
+    }
+    $(".hud-stars").textContent = stars;
+    $(".hud-moves").textContent = "moves " + App.moves;
   }
 
   // ==========================================================================
   // TAP -> cycle state
   // ==========================================================================
   function onBoardClick(ev) {
-    if (App.won) return;
+    if (App.won || App.paused) return;
     var cell = ev.target.closest ? ev.target.closest(".cell") : null;
     if (!cell) return;
     clearHint();
@@ -549,6 +566,7 @@
 
     renderCell(i);
     updateCitySleep();
+    updateHudSub();
     if (App.settings.violations) showViolations();
     saveGame();     // auto-save before a possible win (win then clears the save)
     checkWin();
@@ -564,7 +582,7 @@
 
   // ---- undo / restart / new -------------------------------------------------
   function undo() {
-    if (App.won || !App.undoStack.length) return;
+    if (App.won || App.paused || !App.undoStack.length) return;
     var m = App.undoStack.pop();
     App.board.setState(m.i, m.prev);
     App.moves++;
@@ -573,12 +591,29 @@
     Sound.click(); haptic(10);
     renderCell(m.i);
     updateCitySleep();
+    updateHudSub();
     if (App.settings.violations) showViolations();
     saveGame();
   }
 
+  /** Restart asks first; its Restart button calls restart(). */
+  function askRestart() {
+    if (!App.board || App.won) return;
+    closeMenu();
+    showOverlay(
+      '<div class="sheet-head"><span class="sheet-title">Restart?</span>' +
+      '<button class="sheet-x" data-close aria-label="Close">✕</button></div>' +
+      '<p class="sheet-text">Clear every mark and start this puzzle again. The clock and hints start over too.</p>' +
+      '<div class="sheet-buttons">' +
+      '<button class="btn btn--secondary" data-close>Cancel</button>' +
+      '<button class="btn btn--primary" data-act="restart">Restart</button></div>');
+  }
+
+  /** A fresh attempt at the same puzzle: marks, clock, hintsUsed and the mistake tracker reset. */
   function restart() {
     if (!App.board) return;
+    hideOverlay();
+    setPaused(false);
     for (var i = 0; i < App.N * App.N; i++) App.board.setState(i, CellState.UNMARKED);
     App.undoStack = [];
     App.moves = 0;
@@ -594,8 +629,12 @@
     var nodes = document.querySelectorAll("#board .cell");
     for (var d = 0; d < nodes.length; d++) nodes[d].classList.remove("dip", "win-lit", "win-vanish", "hint");
     clearViolations();
+    clearHint();
+    stopTimer();
+    App.startedAt = 0;      // so startTimer's stopTimer can't fold the old run back into baseMs
     App.baseMs = 0;
     startTimer();
+    updateHudSub();
     closeMenu();
     saveGame();
   }
@@ -608,6 +647,7 @@
 
   function quitToMenu() {
     stopTimer();
+    setPaused(false);       // the clock is already stopped; unhide the board for next time
     saveGame();        // no-op after a win (save already cleared); keeps mid-game resumable
     closeMenu();
     goHome();          // re-renders home, so Continue appears when a game is in progress
@@ -657,6 +697,7 @@
     var nodes = document.querySelectorAll("#board .cell.hint");
     for (var k = 0; k < nodes.length; k++) nodes[k].classList.remove("hint");
     document.getElementById("hint-toast").classList.remove("is-visible");
+    document.getElementById("hint-box").classList.remove("has-hint");   // idle: the rules again
     if (App.hintTimer) { clearTimeout(App.hintTimer); App.hintTimer = null; }
   }
   function highlightHint(i) {
@@ -668,12 +709,14 @@
     var toast = document.getElementById("hint-toast");
     toast.innerHTML = (tech ? '<span class="tech">' + tech + "</span> — " : "") + msg;
     toast.classList.add("is-visible");
+    document.getElementById("hint-box").classList.add("has-hint");
     if (App.hintTimer) clearTimeout(App.hintTimer);
     App.hintTimer = setTimeout(clearHint, 6000);
   }
   function showHint() {
-    if (App.won || !App.board) return;
+    if (App.won || App.paused || !App.board) return;
     App.hintsUsed++;          // every press counts (stars); Task 11 brings the staged hints
+    updateHudSub();
     saveGame();
     var N = App.N, st = App.board.state, sol = App.solution;
 
@@ -801,6 +844,45 @@
   }
   function updateTimerLabel() { var l = $(".hud-timer"); if (l) l.textContent = fmtTime(currentMs()); }
 
+  // ---- pause (TicTacLogic semantics) ----------------------------------------
+  // stopTimer() folds the running time into baseMs and startTimer() restarts from there,
+  // so the paused stretch never counts.
+  function setPaused(on) {
+    App.paused = on;
+    document.getElementById("screen-play").classList.toggle("is-paused", on);
+  }
+  function isPlaying() {
+    return !!App.board && !App.won && document.getElementById("screen-play").classList.contains("screen--active");
+  }
+  function pauseGame() {
+    if (!isPlaying() || App.paused) return;
+    stopTimer();
+    updateTimerLabel();
+    setPaused(true);
+    clearHint();
+    closeMenu();
+    saveGame();
+    showOverlay(
+      '<div class="pause-panel"><div class="sheet-title">Paused</div>' +
+      '<div class="pause-time">' + fmtTime(currentMs()) + "</div>" +
+      '<div class="pause-label">on the clock</div>' +
+      '<div class="sheet-buttons">' +
+      '<button class="btn btn--secondary" data-act="pause-home">Home</button>' +
+      '<button class="btn btn--primary" data-act="resume">Resume</button></div></div>');
+  }
+  function resumeGame() {
+    if (!App.paused) return;
+    setPaused(false);
+    hideOverlay();
+    startTimer();
+  }
+  /** Backdrop, close buttons and Escape: a paused game resumes; any other sheet just closes. */
+  function dismissOverlay() {
+    if (App.paused) resumeGame(); else hideOverlay();
+  }
+  /** Leaving the app mid-game pauses it (and saves), so time spent elsewhere never counts. */
+  function pauseIfPlaying() { if (isPlaying()) pauseGame(); }
+
   // ---- menu -----------------------------------------------------------------
   function openMenu() {
     document.getElementById("menu-settings").innerHTML = renderSettingsRows();
@@ -905,20 +987,31 @@
     document.getElementById("home-list").addEventListener("click", onHomeClick);
     $(".soon-back").addEventListener("click", goHome);
     document.getElementById("overlay").addEventListener("click", function (e) {
-      if (e.target.id === "overlay" || e.target.closest("[data-close]")) { hideOverlay(); return; }
+      if (e.target.id === "overlay" || e.target.closest("[data-close]")) { dismissOverlay(); return; }
+      var act = e.target.closest("[data-act]");
+      if (act) {
+        switch (act.getAttribute("data-act")) {
+          case "resume": resumeGame(); break;
+          case "pause-home": quitToMenu(); break;
+          case "restart": restart(); break;
+        }
+        return;
+      }
       onHomeClick(e);
     });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { hideOverlay(); closeMenu(); }
+      if (e.key === "Escape") { dismissOverlay(); closeMenu(); }
     });
 
     document.getElementById("board").addEventListener("click", onBoardClick);
     $(".btn-undo").addEventListener("click", undo);
     $(".btn-hint").addEventListener("click", showHint);
+    $(".btn-pause").addEventListener("click", pauseGame);
+    $(".hud-home").addEventListener("click", quitToMenu);
     $(".hud-menu").addEventListener("click", openMenu);
 
     // Menu actions
-    $(".menu-restart").addEventListener("click", restart);
+    $(".menu-restart").addEventListener("click", askRestart);
     $(".menu-new").addEventListener("click", newPuzzle);
     $(".menu-quit").addEventListener("click", quitToMenu);
     $(".menu-close").addEventListener("click", closeMenu);
@@ -938,10 +1031,9 @@
     $(".win-menu").addEventListener("click", quitToMenu);
 
     window.addEventListener("resize", sizeBoard);
-    // Keep the clock in the save when the app is hidden or closed (Task 10 turns this
-    // into a real auto-pause).
-    window.addEventListener("pagehide", saveGame);
-    document.addEventListener("visibilitychange", function () { if (document.hidden) saveGame(); });
+    // Auto-pause (and save) when the app is hidden or closed mid-game.
+    window.addEventListener("pagehide", pauseIfPlaying);
+    document.addEventListener("visibilitychange", function () { if (document.hidden) pauseIfPlaying(); });
 
     // PWA service worker (cache-first app shell).
     if ("serviceWorker" in navigator) {

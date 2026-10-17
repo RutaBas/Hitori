@@ -71,5 +71,18 @@ check("no board data -> null", migrateSave({ tierIndex: 2 }) === null);
 check("board arrays of the wrong length -> null", migrateSave(Object.assign({}, old, { state: [0, 1] })) === null);
 check("unknown tier -> null", migrateSave({ tierIndex: 0, N: 5, numbers: [1], solution: [0], state: [0] }) === null);
 
+// A daily save needs a real day key; a level save needs a positive whole level number.
+const withKey = (k) => Object.assign({}, daily, { dailyKey: k });
+check("daily without dailyKey -> null", migrateSave(withKey(undefined)) === null);
+check("daily with a malformed dailyKey -> null",
+  migrateSave(withKey("2026-1-7")) === null && migrateSave(withKey("today")) === null &&
+  migrateSave(withKey(20261017)) === null);
+const withLevel = (n) => Object.assign({}, lvl, { level: n });
+check("level without level -> null", migrateSave(withLevel(undefined)) === null);
+check("level 0, negative, fractional or string -> null",
+  migrateSave(withLevel(0)) === null && migrateSave(withLevel(-3)) === null &&
+  migrateSave(withLevel(2.5)) === null && migrateSave(withLevel("23")) === null);
+check("free save needs neither dailyKey nor level", migrateSave(Object.assign({}, partial)) !== null);
+
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

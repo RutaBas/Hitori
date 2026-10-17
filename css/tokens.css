@@ -32,6 +32,12 @@
   /* secondary button hairline outline */
   --outline:            #3A3F58;
 
+  /* quiet secondary text on night (sub-labels, idle hint box, meta) */
+  --muted:              #9AA0BE;
+
+  /* play screen: the hint box keeps this height so the board never jumps */
+  --hint-box-h:         86px;
+
   /* --- spacing scale (4 / 8 / 16 / 24 / 32) --- */
   --space-1: 4px;
   --space-2: 8px;

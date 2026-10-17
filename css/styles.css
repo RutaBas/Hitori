@@ -145,7 +145,7 @@ body {
   margin-top: 2px;
   font-weight: 300;
   font-size: 12px;
-  color: #9AA0BE;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -195,7 +195,7 @@ body {
   font-size: 11px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: #9AA0BE;
+  color: var(--muted);
 }
 
 .home-footer {
@@ -233,7 +233,7 @@ body {
   font-weight: 500; font-size: 18px; letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--sodium-light); margin-bottom: var(--space-3);
 }
-.soon-text { font-weight: 300; font-size: 14px; color: #9AA0BE; }
+.soon-text { font-weight: 300; font-size: 14px; color: var(--muted); }
 
 /* ============================ TIER LIST ================================= */
 .tier-list { display: flex; flex-direction: column; gap: 6px; }
@@ -267,7 +267,7 @@ body {
   gap: var(--space-3);
   font-weight: 300;
   font-size: 13px;
-  color: #9AA0BE;
+  color: var(--muted);
 }
 .tier-best { min-width: 3.2em; text-align: right; }
 .tier--continue { background: #21263F; }
@@ -275,54 +275,90 @@ body {
 .tier.is-working { opacity: 0.7; }
 
 /* ============================ HUD ====================================== */
+/* Play screen, layout v2: HUD + sub-row on top, the board centred in the flexible
+   middle, a fixed-height hint box, then the thumb row. */
+/* On wide screens the play column stays phone-shaped and centred. */
+#screen-play { align-items: center; }
+#screen-play > * { width: 100%; max-width: 560px; }
 .hud {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 40px;
-  margin-bottom: var(--space-3);
+  gap: var(--space-1);
+  min-height: 44px;
   flex: 0 0 auto;
 }
-.hud-left { display: flex; align-items: baseline; gap: var(--space-2); }
+.hud .back-link { flex: 0 0 auto; margin-left: calc(-1 * var(--space-1)); }
 .hud-tier {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
   font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  font-size: 15px;
+  letter-spacing: 0.06em;
+  font-size: 14px;
   color: var(--sodium-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.hud-size { font-weight: 300; font-size: 12px; color: #9AA0BE; }
-.hud-right { display: flex; align-items: center; gap: var(--space-2); }
 .hud-timer {
+  flex: 0 0 auto;
   font-weight: 400;
   font-size: 15px;
   color: var(--lit);
   font-variant-numeric: tabular-nums;
 }
 .hud-menu {
+  flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px;
+  width: 44px; height: 44px;
+  margin-right: calc(-1 * var(--space-2));
   border: none; background: transparent; cursor: pointer;
-  color: #9AA0BE;
+  color: var(--muted);
 }
 .hud-menu svg { fill: currentColor; }
+.hud-sub {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--space-2);
+  font-weight: 300;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hud-sub-left { display: flex; gap: var(--space-2); }
+.hud-stars { color: var(--sodium-light); letter-spacing: 0.04em; }
+/* Narrow phones (320 px): the longest titles ("Secluded · Level 100", "Daily · Sat 17 Oct")
+   still fit between ‹ Home and the timer. */
+@media (max-width: 360px) {
+  .hud-tier { font-size: 12px; letter-spacing: 0; }
+  .hud .back-link { font-size: 13px; padding: 0 2px; margin-left: 0; }
+}
 
 /* ============================ BOARD ==================================== */
-.board-wrap {
+/* The zone takes whatever height is left; sizeBoard() sets the board to the smaller of
+   the zone's width and height (on load and on resize). */
+.board-zone {
   flex: 1 1 auto;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 0;
+  min-width: 0;
 }
 .board {
   display: grid;
   gap: 3px;
-  width: 100%;
-  max-width: min(100%, 78vh);
+  width: 100%;              /* until sizeBoard() runs */
   aspect-ratio: 1 / 1;
+  flex: 0 0 auto;
   z-index: 1;
+  transition: filter 0.25s var(--ease);
 }
+/* Paused: no solving while the clock is stopped. Digits go, and the grid blurs. */
+#screen-play.is-paused .board { filter: blur(10px); pointer-events: none; }
+#screen-play.is-paused .board .digit { opacity: 0; }
 
 /* One depth language. Lit = raised lamplit paper; shaded = pressed in, light off. */
 .cell {
@@ -419,18 +455,51 @@ body:not(.no-violations) .cell--shaded.violation {
 .cell.hint { animation: hintPulse 1s var(--ease) infinite; z-index: 2; }
 .cell--shaded.hint { animation: hintPulseDark 1s var(--ease) infinite; }
 
-/* Hint message — a quiet pill above the controls. */
-.hint-toast {
+/* Hint box — fixed height (--hint-box-h) under the board so the board never jumps.
+   Idle it shows the three rules as a quiet reminder; .has-hint swaps in the hint text. */
+.hint-box {
   flex: 0 0 auto;
-  min-height: 0;
+  height: var(--hint-box-h);
   margin-top: var(--space-2);
+  padding: 6px 10px;
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  background: var(--band-far);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  transition: border-color 0.25s var(--ease);
+}
+.hint-box.has-hint { border-color: var(--sodium-light); }
+.hint-rules {
+  list-style: none;
+  font-weight: 300;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.hint-rules li { position: relative; padding-left: 1.1em; }
+.hint-rules li + li { margin-top: 2px; }
+.hint-rules li::before {
+  content: "";
+  position: absolute;
+  left: 0.1em;
+  top: 0.5em;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 2px;
+  background: var(--outline);
+}
+.hint-box.has-hint .hint-rules { display: none; }
+.hint-toast {
+  display: none;
   text-align: center;
   font-weight: 300;
   font-size: 13px;
+  line-height: 1.45;
   letter-spacing: 0.02em;
   color: var(--lit);
-  opacity: 0;
-  transition: opacity 0.25s var(--ease);
 }
 .hint-toast .tech {
   color: var(--sodium-light);
@@ -439,15 +508,19 @@ body:not(.no-violations) .cell--shaded.violation {
   letter-spacing: 0.1em;
   font-size: 12px;
 }
-.hint-toast.is-visible { opacity: 1; }
+.hint-toast.is-visible { display: block; }
 
 /* ============================ CONTROLS ================================= */
+/* Thumb row: Undo · Hint · Pause, bigger than the sheet buttons. */
 .controls {
   flex: 0 0 auto;
   display: flex;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+  margin-top: var(--space-2);
 }
+.controls .btn { min-height: 52px; border-radius: 12px; letter-spacing: 0.08em; padding: 0 var(--space-1); }
+.controls .btn--secondary { background: var(--night); }   /* opaque over the skyline */
+.controls .btn-hint { border-color: var(--sodium-light); color: var(--sodium-light); }
 .btn {
   flex: 1 1 0;
   min-height: 46px;
@@ -504,12 +577,12 @@ body:not(.no-violations) .cell--shaded.violation {
   font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase;
   font-size: 14px; color: var(--sodium-light);
 }
-.sheet-x { background: transparent; border: none; color: #9AA0BE; font-size: 18px; cursor: pointer; }
+.sheet-x { background: transparent; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
 .menu-stats {
   font-weight: 300;
   font-size: 13px;
   line-height: 1.6;
-  color: #9AA0BE;
+  color: var(--muted);
   margin-bottom: var(--space-3);
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--outline);
@@ -535,12 +608,12 @@ body:not(.no-violations) .cell--shaded.violation {
 .toggle .knob {
   position: absolute; top: 2px; left: 2px;
   width: 20px; height: 20px; border-radius: 50%;
-  background: #9AA0BE;
+  background: var(--muted);
   transition: var(--transition-default);
 }
 .toggle.is-on { background: var(--sodium-light); border-color: var(--sodium-light); }
 .toggle.is-on .knob { transform: translateX(20px); background: var(--night); }
-.setting-value { font-weight: 300; font-size: 14px; color: #9AA0BE; }
+.setting-value { font-weight: 300; font-size: 14px; color: var(--muted); }
 
 /* Sheet content for Rules / Settings (generic #overlay). */
 .rules-list {
@@ -554,10 +627,25 @@ body:not(.no-violations) .cell--shaded.violation {
   margin-bottom: var(--space-4);
   padding-top: var(--space-3);
   border-top: 1px solid var(--outline);
-  font-weight: 300; font-size: 13px; line-height: 1.5; color: #9AA0BE;
+  font-weight: 300; font-size: 13px; line-height: 1.5; color: var(--muted);
 }
 .sheet-buttons { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
 #overlay .settings .setting-row { min-height: 36px; }
+.sheet-x { min-width: 44px; min-height: 44px; margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0; }
+.sheet-text { font-weight: 300; font-size: 14px; line-height: 1.55; color: var(--lit); }
+
+/* Pause sheet: the time so far, Resume (primary) and Home. */
+.pause-panel { text-align: center; }
+.pause-time {
+  margin-top: var(--space-3);
+  font-weight: 400; font-size: 40px; line-height: 1;
+  color: var(--lit); font-variant-numeric: tabular-nums;
+}
+.pause-label {
+  margin-top: var(--space-2);
+  font-weight: 300; font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase;
+  color: var(--muted);
+}
 
 /* ============================ WIN ===================================== */
 /* Light backdrop so the freshly-lit board stays visible above the tier + time. */
@@ -574,14 +662,14 @@ body:not(.no-violations) .cell--shaded.violation {
 .win-extra {
   font-weight: 300;
   font-size: 12px;
-  color: #9AA0BE;
+  color: var(--muted);
   margin-bottom: var(--space-4);
 }
 .win-tier {
   font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase;
   font-size: 22px; color: var(--sodium-light); margin-bottom: var(--space-2);
 }
-.win-label { font-weight: 300; font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; color: #9AA0BE; }
+.win-label { font-weight: 300; font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted); }
 .win-time {
   font-weight: 400; font-size: 40px; color: var(--lit);
   font-variant-numeric: tabular-nums; margin: var(--space-2) 0 var(--space-5);

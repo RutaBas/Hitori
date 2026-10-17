@@ -159,30 +159,41 @@
       </div>
     </section>
 
-    <!-- PLAY SCREEN -->
+    <!-- PLAY SCREEN (layout v2): HUD, sub-row, board centred in the flexible middle,
+         fixed-height hint box, thumb row. sizeBoard() fits the board to .board-zone. -->
     <section id="screen-play" class="screen">
       <header class="hud">
-        <div class="hud-left">
-          <span class="hud-tier">Crowded</span>
-          <span class="hud-size">5×5</span>
-        </div>
-        <div class="hud-right">
-          <span class="hud-timer">0:00</span>
-          <button class="hud-menu" aria-label="Menu">
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
-          </button>
-        </div>
+        <button class="back-link hud-home">‹ Home</button>
+        <span class="hud-tier">Crowded</span>
+        <span class="hud-timer">0:00</span>
+        <button class="hud-menu" aria-label="Menu">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+        </button>
       </header>
+      <div class="hud-sub">
+        <span class="hud-sub-left"><span class="hud-size">5×5</span><span class="hud-stars"></span></span>
+        <span class="hud-moves">moves 0</span>
+      </div>
 
-      <div class="board-wrap">
+      <div class="board-zone">
         <div id="board" class="board"></div>
       </div>
 
-      <div class="hint-toast" id="hint-toast" aria-live="polite"></div>
+      <!-- Fixed height so the board never jumps. Idle: the three rules. A hint replaces
+           them (Task 11 fills this box with the staged hints). -->
+      <div class="hint-box" id="hint-box">
+        <ul class="hint-rules" aria-label="The rules">
+          <li>No number repeats among the lit cells of a row or column</li>
+          <li>Shaded cells never touch side by side</li>
+          <li>All lit cells stay connected</li>
+        </ul>
+        <div class="hint-toast" id="hint-toast" aria-live="polite"></div>
+      </div>
 
       <div class="controls">
         <button class="btn btn--secondary btn-undo">Undo</button>
         <button class="btn btn--secondary btn-hint">Hint</button>
+        <button class="btn btn--secondary btn-pause">Pause</button>
       </div>
     </section>
 

@@ -101,7 +101,9 @@ function flagMistake(tracker, i) {
  *     elapsedMs, moves, hintsUsed, tracker, level?, dailyKey?, startedKey?, savedAt }
  * migrateSave upgrades a pre-update save ({ tierIndex, tierName, N, numbers, solution,
  * state, elapsedMs, moves, savedAt }, always free play) and fills missing counters.
- * Returns a new object, or null when there is nothing resumable. Never mutates `s`.
+ * Returns a new object, or null when there is nothing resumable (including a daily save
+ * without a "YYYY-MM-DD" dailyKey, or a level save without a positive whole `level`).
+ * Never mutates `s`.
  */
 const SAVE_MODES = { free: true, level: true, daily: true };
 
@@ -113,6 +115,8 @@ function migrateSave(s) {
   delete out.tierIndex;
   delete out.tierName; // the name comes from TIERS[tier]
   if (!SAVE_MODES[out.mode]) return null;
+  if (out.mode === "daily" && !(typeof out.dailyKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(out.dailyKey))) return null;
+  if (out.mode === "level" && !(Number.isInteger(out.level) && out.level > 0)) return null;
   if (!(out.tier >= 1 && out.tier <= 6) || !out.N ||
       !Array.isArray(out.numbers) || !Array.isArray(out.solution) || !Array.isArray(out.state)) return null;
   const cells = out.N * out.N;
