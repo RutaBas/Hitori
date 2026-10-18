@@ -58,6 +58,7 @@
     hintHeld: null,       // the hint put aside while paused; resumeGame shows it again
     levelTier: null,      // the tier whose level grid is open / was last open
     pendingLevel: null,   // { t, n } waiting behind the technique intro card
+    pendingStart: null,   // the fresh start waiting behind the "game in progress" sheet
     levelResult: null,    // the last level win: { stars, ms, best, prevBest, isLast }
     dailyMonth: null,     // { y, m } the Daily calendar shows (null = this month)
     dailyResult: null,    // the last daily win: { stars, ms, onTime, prevBest, streak, best }
@@ -367,6 +368,9 @@
   function onTierTap(btn) {
     if (btn.classList.contains("is-working")) return;
     var t = parseInt(btn.getAttribute("data-tier"), 10);
+    confirmReplace({ mode: "free", tier: t }, function () { buildTier(btn, t); });
+  }
+  function buildTier(btn, t) {
     btn.classList.add("is-working");
     var name = btn.querySelector(".tier-name");
     var prev = name.textContent;
@@ -498,9 +502,11 @@
     if (!(t >= 1 && t <= 6) || !(n >= 1 && n <= levelCount(t)) || !isUnlocked(levelsProgress()[t], n)) return;
     var saved = levelSaveFor(t, n);
     if (saved) { startGame(saved); return; }
-    var tech = TIERS[t].technique;
-    if (!techSeen()[tech] && TECHNIQUE_INTROS[tech]) { showTechIntro(t, n, tech); return; }
-    startLevel(t, n);
+    confirmReplace({ mode: "level", tier: t, level: n }, function () {
+      var tech = TIERS[t].technique;
+      if (!techSeen()[tech] && TECHNIQUE_INTROS[tech]) { showTechIntro(t, n, tech); return; }
+      startLevel(t, n);
+    });
   }
 
   function showTechIntro(t, n, tech) {
@@ -958,6 +964,9 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || key < DAILY_EPOCH || key > today) return;
     var saved = dailySaveFor(key);
     if (saved) { startGame(saved); return; }
+    confirmReplace({ mode: "daily", dailyKey: key }, function () { buildDaily(key, today); });
+  }
+  function buildDaily(key, today) {
     showOverlay('<div class="daily-building"><div class="sheet-title">' +
       (key === today ? "Building tonight’s puzzle…" : "Building the " + fmtDay(key) + " puzzle…") + "</div>" +
       '<p class="sheet-text">' + sizeLabel(TIERS[dailyTier(key)].size) + " · the same board for everyone</p></div>");
@@ -1148,7 +1157,10 @@
         case "back": tut.k--; renderTutorial(); break;
         case "next": tut.k++; renderTutorial(); break;
         case "skip": finishTutorial(); exitTutorial(); break;
-        case "play": finishTutorial(); clearTimeout(tut.timer); tut = null; startTier(1); break;
+        case "play":
+          finishTutorial();
+          confirmReplace({ mode: "free", tier: 1 }, function () { clearTimeout(tut && tut.timer); tut = null; startTier(1); });
+          break;
       }
       return;
     }
@@ -1267,6 +1279,39 @@
     var s = loadSave();
     if (!s) { renderHome(); return; }
     startGame(s);
+  }
+
+  /**
+   * There is one save slot, so every fresh start from outside the game (a free-play tier,
+   * a level, a daily, the tutorial's Play) comes through here first. target = { mode, tier,
+   * level?, dailyKey? }. When a resumable save exists and is a different game, a sheet asks
+   * first: Keep playing resumes the save, Start new runs go(). The same level or day never
+   * gets here (playLevel / startDaily resume it), and a free-play target is always a new
+   * puzzle, so any save differs from it. From inside a game (menu New puzzle) the save is
+   * the board on screen, so there is nothing to ask.
+   */
+  function confirmReplace(target, go) {
+    var s = loadSave();
+    var same = s && s.mode === target.mode && target.mode !== "free" &&
+      (target.mode === "daily" ? s.dailyKey === target.dailyKey : s.tier === target.tier && s.level === target.level);
+    if (!s || same || isPlaying()) { go(); return; }
+    App.pendingStart = go;
+    var what = gameTitle(s.mode, s.tier, s.level, s.dailyKey) + (s.mode === "free" ? " · free play" : "");
+    showOverlay(
+      '<div class="sheet-head"><span class="sheet-title">Game in progress</span>' +
+      '<button class="sheet-x" data-close aria-label="Close">✕</button></div>' +
+      '<p class="sheet-text">You have <b>' + esc(what) + "</b> in progress (" + fmtTime(s.elapsedMs || 0) +
+      "). Start this instead?</p>" +
+      '<div class="sheet-buttons">' +
+      '<button class="btn btn--secondary" data-act="keep-save">Keep playing</button>' +
+      '<button class="btn btn--primary" data-act="start-new">Start new</button></div>');
+  }
+  /** The confirm sheet's Start new: run the start that was waiting. */
+  function startPendingStart() {
+    var go = App.pendingStart;
+    App.pendingStart = null;
+    hideOverlay();
+    if (go) go();
   }
 
   function buildBoardDom() {
@@ -2012,6 +2057,12 @@
           case "intro-start": startPendingLevel(); break;
           case "level-back": showTier(App.levelTier); break;
           case "daily-back": openDaily(); break;
+          case "keep-save":
+            App.pendingStart = null;
+            if (tut) { clearTimeout(tut.timer); tut = null; }   // asked from the tutorial's Play
+            resumeSaved();
+            break;
+          case "start-new": startPendingStart(); break;
         }
         return;
       }
