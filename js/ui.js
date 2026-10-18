@@ -560,7 +560,7 @@
     var old = tp[App.level] || null;
     tp[App.level] = mergeResult(old, stars, ms, App.hintsUsed === 0);
     writeJSON(LS.levels, lp);
-    writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), dateKey(new Date()), "level", App.hintsUsed));
+    writeJSON(LS.activity, recordActivity(objOf(readJSON(LS.activity, {})), dateKey(new Date()), "level", App.hintsUsed));
     App.levelResult = { stars: stars, ms: ms, best: tp[App.level].bestMs, prevBest: old ? old.bestMs : null,
       isLast: App.level >= levelCount(App.tier) };
   }
@@ -785,9 +785,8 @@
   // ---- All: every mode together ----
   function statsAllHtml(src, today) {
     var a = allStats(src, today), log = src.activity;
-    var started = 0, logSolves = 0, active = 0;
+    var logSolves = 0, active = 0;
     Object.keys(log).forEach(function (k) {
-      started += log[k].started || 0;
       logSolves += daySolves(log[k]);
       if (daySolves(log[k]) > 0) active++;
     });
@@ -797,7 +796,7 @@
     var html = stHero(cur, "day streak", "best " + a.streak.best + " · any puzzle counts · " + nudge);
     html += stTiles([
       [a.solved, "solved"],
-      [dashOr(a.solved || started, a.finishedPct + "%"), "finished"],
+      [dashOr(a.attempts, a.finishedPct + "%"), "finished"],
       [a.perfect, "★★★"],
       [dashOr(logSolves, String(a.hintsPerGame)), "hints / game"],
     ]);
@@ -984,7 +983,7 @@
     var today = dateKey(new Date()), rec = dailyRecords(), old = rec[App.dailyKey] || null;
     rec = recordDaily(rec, App.dailyKey, onTime, stars, ms);
     writeJSON(LS.daily, rec);
-    writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), today, "daily", App.hintsUsed));
+    writeJSON(LS.activity, recordActivity(objOf(readJSON(LS.activity, {})), today, "daily", App.hintsUsed));
     App.dailyResult = { stars: stars, ms: ms, onTime: onTime, prevBest: old ? old.bestMs : null,
       streak: currentStreak(rec, today), best: bestStreak(rec) };
   }
@@ -1218,9 +1217,9 @@
     if (!resume) {
       recordAbandon(loadSave());              // overwriting an unsolved free game breaks its streak
       if (cfg.mode === "free") recordStart(cfg.tier);
-      // Every new attempt, whatever its mode, is one "started" in the activity log (the
-      // All tab's % finished); a resumed save was already counted when it began.
-      writeJSON(LS.activity, recordActivity(readJSON(LS.activity, {}), dateKey(new Date()), cfg.mode, 0, { started: true }));
+      // Every new attempt is one start of its mode in the activity log (levels and dailies
+      // feed the All tab's % finished from it); a resumed save was counted when it began.
+      writeJSON(LS.activity, recordActivity(objOf(readJSON(LS.activity, {})), dateKey(new Date()), cfg.mode, 0, { started: true }));
     }
     clearWinTimers();
     clearHint();

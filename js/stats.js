@@ -8,14 +8,20 @@
  *   freeStats  { "<tier 1..6>": { played, won, bestMs, sumMs, ..., hintsUsed } }
  *   levels     { "<tier>": { "<n>": { stars, bestMs, noHint } } }
  *   daily      { "YYYY-MM-DD": { stars, bestMs, onTime } }
- *   activity   { "YYYY-MM-DD": { free, level, daily, hints, started } }
+ *   activity   { "YYYY-MM-DD": { free, level, daily, hints, started: { free, level, daily } } }
  *
  * The activity log is the one source for streaks, the calendar grid, hints per
- * game and ATTEMPTS: `started` counts games begun (recordActivity with
- * { started: true }) and is summed over all three modes for finishedPct, so a
- * daily attempt is counted exactly like a free or level one. Solves
- * (free/level/daily) count games finished that day; `hints` is the total hints
- * used in those solves.
+ * game and level/daily ATTEMPTS: `started` counts games begun per mode
+ * (recordActivity with { started: true }). Solves (free/level/daily) count
+ * games finished that day, replays included; `hints` is the total hints used
+ * in those solves. A day logged before starts were split by mode holds a plain
+ * number in `started`; it is read as mode-unknown and, on the next write, kept
+ * as started.unknown (never dropped).
+ *
+ * % finished is computed per source and then pooled: free play from
+ * hitori.stats (won / played, its full history), levels and dailies from the
+ * log (solves / starts). A mode's attempts never fall below its logged solves
+ * (a solve whose start was not logged by mode still counts as one attempt).
  *
  * Times: free play averages use its own sumMs; levels and dailies only keep a
  * best time, so that best stands in as their time (same as dailyStats).
@@ -28,7 +34,15 @@ const STATS_GRID_WEEKS = 12;
 const STATS_MASTERY_NEED = 10; // no-hint solves to master a technique
 const STATS_TIERS = [1, 2, 3, 4, 5, 6];
 
-function statsBlankDay() { return { free: 0, level: 0, daily: 0, hints: 0, started: 0 }; }
+function statsBlankStarts() { return { free: 0, level: 0, daily: 0 }; }
+function statsBlankDay() { return { free: 0, level: 0, daily: 0, hints: 0, started: statsBlankStarts() }; }
+
+/** A day's starts per mode; an old numeric `started` becomes { unknown: n }. */
+function statsStartsOf(d) {
+  const s = d && d.started;
+  if (typeof s === "number") return Object.assign(statsBlankStarts(), s > 0 ? { unknown: s } : {});
+  return Object.assign(statsBlankStarts(), s && typeof s === "object" ? s : {});
+}
 
 /**
  * Add to the day's activity (returns a new log). With { started: true} it only
@@ -37,7 +51,8 @@ function statsBlankDay() { return { free: 0, level: 0, daily: 0, hints: 0, start
 function recordActivity(log, key, mode, hintsUsed, opts) {
   const out = Object.assign({}, log);
   const day = Object.assign(statsBlankDay(), out[key]);
-  if (opts && opts.started) day.started++;
+  day.started = statsStartsOf(out[key]);
+  if (opts && opts.started) day.started[mode] = (day.started[mode] || 0) + 1;
   else {
     day[mode] = (day[mode] || 0) + 1;
     day.hints += hintsUsed || 0;
@@ -112,9 +127,12 @@ function statsGrid(log, todayKey) {
 }
 
 /**
- * Everything the stats screen shows. finishedPct = (free won + levels solved +
- * dailies solved) / games started in the log, rounded. Attempts never fall below
- * solves, so solves saved before attempts were logged cannot push it past 100.
+ * Everything the stats screen shows. solved = unique puzzles (free wins, levels
+ * and dailies in their records). finishedPct pools attempts per source:
+ *   (free won + logged level solves + logged daily solves) /
+ *   (free played + logged level starts + logged daily starts)
+ * with each mode's attempts at least its solves, so it never passes 100; replays
+ * count as attempts and solves alike. attempts = that denominator (0 -> no %).
  */
 function allStats(src, todayKey) {
   const freeStats = (src && src.freeStats) || {};
@@ -148,20 +166,27 @@ function allStats(src, todayKey) {
     addTime(at(dailyTier(k)), daily[k].bestMs);
   }
 
-  let started = 0, logSolves = 0, hints = 0;
+  let freePlayed = 0;
+  for (const t of STATS_TIERS) if (freeStats[t]) freePlayed += freeStats[t].played || 0;
+  let logSolves = 0, hints = 0;
+  const lg = { level: { starts: 0, solves: 0 }, daily: { starts: 0, solves: 0 } };
   for (const k of Object.keys(log)) {
-    started += log[k].started || 0;
-    logSolves += statsDaySolves(log[k]);
-    hints += log[k].hints || 0;
+    const d = log[k] || {}, st = statsStartsOf(d);
+    logSolves += statsDaySolves(d);
+    hints += d.hints || 0;
+    for (const m of ["level", "daily"]) { lg[m].starts += st[m] || 0; lg[m].solves += d[m] || 0; }
   }
   const solved = freeWon + levelsSolved + dailiesSolved;
-  const attempts = Math.max(started, solved);
+  const done = freeWon + lg.level.solves + lg.daily.solves;
+  const attempts = Math.max(freePlayed, freeWon) + Math.max(lg.level.starts, lg.level.solves) +
+    Math.max(lg.daily.starts, lg.daily.solves);
   byTier.forEach((b) => { b.avgMs = b.solved ? Math.round(b.sumMs / b.solved) : 0; delete b.sumMs; });
 
   return {
     streak: overallStreak(log, todayKey),
     solved: solved,
-    finishedPct: attempts ? Math.round(solved / attempts * 100) : 0,
+    finishedPct: attempts ? Math.round(done / attempts * 100) : 0,
+    attempts: attempts,
     perfect: perfect,
     hintsPerGame: logSolves ? Math.round(hints / logSolves * 10) / 10 : 0,
     grid: statsGrid(log, todayKey),
