@@ -137,5 +137,24 @@ console.log("Daily 5: stats");
   check("unsolved past day -> missed", hm[77 + 1].status === "missed");
 }
 
+console.log("Daily: retry cap");
+{
+  // generateTier always failing must not loop forever: after DAILY_MAX_TRIES it returns null.
+  const real = global.generateTier;
+  let calls = 0;
+  global.generateTier = () => { calls++; return { failed: true }; };
+  let p, threw = false;
+  try { p = D.dailyPuzzle("2026-10-19"); } catch (e) { threw = true; }
+  global.generateTier = real;
+  check("always-failing generator -> null, no throw", !threw && p === null);
+  check("tries capped at 10", calls === 10 && D.DAILY_MAX_TRIES === 10);
+  // One failure then success: the deterministic retry still gives a board.
+  let n = 0;
+  global.generateTier = (t, o) => (n++ === 0 ? { failed: true } : real(t, o));
+  const q = D.dailyPuzzle("2026-10-19");
+  global.generateTier = real;
+  check("a retry after a failure still builds the board", !!q && q.N === 9 && q.numbers.length === 81);
+}
+
 console.log("\ndaily.test.js: " + pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);

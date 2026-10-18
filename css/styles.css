@@ -159,7 +159,7 @@ body {
   font-weight: 500; font-size: 15px;
 }
 
-.home-card--continue { background: #21263F; border-color: var(--outline); }
+.home-card--continue { background: var(--card-raised); border-color: var(--outline); }
 
 .home-card--daily { border-color: var(--sodium-light); }
 /* Tear-off calendar tile: sodium month strip over a lamplit day number. */
@@ -186,7 +186,7 @@ body {
 .home-card--levels .hc-sub { color: var(--night); opacity: 0.8; }
 .home-card--levels .hc-arrow { color: var(--night); }
 .home-card--levels .hc-badge { background: var(--night); color: var(--sodium-light); }
-.lv-bar { display: block; height: 4px; margin-top: 6px; border-radius: 2px; overflow: hidden; background: rgba(22, 25, 43, 0.3); }
+.lv-bar { display: block; height: 4px; margin-top: 6px; border-radius: 2px; overflow: hidden; background: var(--night-track); }
 .lv-bar span { display: block; height: 100%; background: var(--night); border-radius: 2px; }
 
 .section-label {
@@ -755,7 +755,7 @@ button.cal-cell:active:not(:disabled) { transform: scale(0.95); }
   color: var(--muted);
 }
 .tier-best { min-width: 3.2em; text-align: right; }
-.tier--continue { background: #21263F; }
+.tier--continue { background: var(--card-raised); }
 .tier--continue .tier-name { color: var(--lit); }
 .tier.is-working { opacity: 0.7; }
 

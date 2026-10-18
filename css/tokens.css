@@ -32,6 +32,11 @@
   /* secondary button hairline outline */
   --outline:            #3A3F58;
 
+  /* Home's Continue card: a step lighter than the other night cards */
+  --card-raised:        #21263F;
+  /* progress-bar track on a sodium card: night at 30% */
+  --night-track:        rgba(22, 25, 43, 0.3);
+
   /* quiet secondary text on night (sub-labels, idle hint box, meta) */
   --muted:              #9AA0BE;
 

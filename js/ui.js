@@ -290,7 +290,7 @@
 
     // 2. Daily — tear-off calendar tile, today's size and the streak.
     var today = dateKey(new Date());
-    var drec = readJSON(LS.daily, {});
+    var drec = objOf(readJSON(LS.daily, {}));
     var dTier = dailyTier(today), dN = TIERS[dTier].size;
     var streak = currentStreak(drec, today);
     var tday = parseKey(today);
@@ -312,11 +312,11 @@
     }
 
     // 4. Levels — every tier's progress, summed.
-    var lp = readJSON(LS.levels, {});
+    var lp = objOf(readJSON(LS.levels, {}));
     var total = 0, solved = 0, stars = 0;
     for (var t = 1; t <= 6; t++) {
       var count = levelCount(t);
-      var sum = tierSummary(lp[t], count);
+      var sum = tierSummary(cleanMap(lp[t]), count);   // a damaged entry is skipped, as on Stats
       total += count; solved += sum.solved; stars += sum.stars;
     }
     var pct = solved ? Math.max(2, Math.round((100 * solved) / total)) : 0;
@@ -329,9 +329,9 @@
 
     // 5. Free play — the six tiers as before (name, size, best time).
     html += '<div class="section-label">Free play</div><div class="tier-list">';
-    var fstats = readJSON(LS.stats, {});
+    var fstats = objOf(readJSON(LS.stats, {}));
     for (var ft = 1; ft <= 6; ft++) {
-      var best = fstats[ft] && fstats[ft].bestMs ? fmtTime(fstats[ft].bestMs) : "—";
+      var best = fmtOrDash(objOf(fstats[ft]).bestMs);
       html += '<button class="tier" data-tier="' + ft + '">' +
         '<span class="tier-name">' + TIERS[ft].name + "</span>" +
         '<span class="tier-meta"><span class="tier-size">' + sizeLabel(TIERS[ft].size) + "</span>" +
@@ -949,6 +949,7 @@
       return { tier: tier, N: N, numbers: c.numbers, solution: c.solution };
     }
     var p = dailyPuzzle(key);
+    if (!p) return null;          // the generator gave up: startDaily shows "won't open"
     var out = { tier: p.tier, N: p.N, numbers: Array.from(p.numbers), solution: Array.from(p.solution) };
     writeJSON(LS.dailyCache, { key: key, numbers: out.numbers, solution: out.solution });
     return out;
@@ -1771,6 +1772,7 @@
     if (!isSolved()) return;
     App.won = true;
     stopTimer();
+    updateTimerLabel();     // the HUD shows the final time, not the last 500 ms tick
     if (App.mode === "free") recordWin();
     if (App.mode === "level") recordLevelWin();
     if (App.mode === "daily") recordDailyWin();

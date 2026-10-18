@@ -21,6 +21,7 @@ const DAILY_EPOCH = "2026-10-17"; // day 0 of the daily, and the calendar's firs
 const DAILY_TIERS = [3, 4, 5, 6]; // ladder tier, rotating by day
 
 const DAILY_DAY_MS = 86400000;
+const DAILY_MAX_TRIES = 10;       // the date's seed plus 9 retries, then give up
 
 function dailyPad2(n) { return (n < 10 ? "0" : "") + n; }
 
@@ -57,14 +58,16 @@ function dailyTier(key) {
  * The day's puzzle, seeded by the date: { tier, N, numbers, solution }.
  * If generateTier ever fails for the date's seed, retry deterministically with
  * seeds hashString("daily-" + key + "-retry-" + k), k = 1, 2, ... so every
- * device still gets the same board.
+ * device still gets the same board. After DAILY_MAX_TRIES failures it returns
+ * null (the UI says that daily won't open).
  */
 function dailyPuzzle(key) {
   const tier = dailyTier(key);
   let p = generateTier(tier, { rand: mulberry32(hashString("daily-" + key)) });
-  for (let k = 1; p.failed; k++) {
+  for (let k = 1; (!p || p.failed) && k < DAILY_MAX_TRIES; k++) {
     p = generateTier(tier, { rand: mulberry32(hashString("daily-" + key + "-retry-" + k)) });
   }
+  if (!p || p.failed) return null;
   return { tier: tier, N: p.N, numbers: p.numbers, solution: p.solution };
 }
 
@@ -188,7 +191,7 @@ function activityGrid(records, todayKey, weeks) {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    DAILY_EPOCH, DAILY_TIERS, STREAK_MILESTONES,
+    DAILY_EPOCH, DAILY_TIERS, DAILY_MAX_TRIES, STREAK_MILESTONES,
     dateKey, parseKey, addDays, dayIndex, dailyTier, dailyPuzzle,
     recordDaily, currentStreak, bestStreak, monthGrid,
     dailyStats, streakMilestones, activityGrid,
