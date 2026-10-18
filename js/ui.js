@@ -1185,9 +1185,9 @@
     // A lesson solved once stays passed (Next stays open) even if the player keeps playing.
     syncTutButtons();
     if (r.wrong) {
-      var k = tut.k;
+      var k = tut.k, line = tutorialWrongLine(L, r);  // the lesson's line only for its anticipated mistake
       tut.timer = setTimeout(function () {
-        if (tut && tut.k === k) setTutTask(L.wrong, "oops");
+        if (tut && tut.k === k) setTutTask(line, "oops");
       }, TUT_WRONG_MS);
     }
   }

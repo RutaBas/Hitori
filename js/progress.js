@@ -136,9 +136,14 @@ function migrateSave(s) {
  *   answer       the finished board: "S" must be shaded, "O" must be circled, "." must
  *                stay lit (unmarked or circled — a circle on a lit cell is never wrong)
  *   task         the line under the board (what to do now); wrong = the delayed
- *                "not quite" line; done = the line once it's solved
+ *                "not quite" line for the anticipated mistake; done = the line once
+ *                it's solved
+ *   trap         (rule lessons) the cells whose shading is the anticipated mistake:
+ *                `wrong` is shown only when every off-answer mark is one of these,
+ *                shaded; any other mistake gets TUTORIAL_WRONG_GENERIC
  *   steps        (lesson 1 only) marks to reach in order, each matched exactly, with its
- *                own task line; the last one is the answer
+ *                own task line; the last one is the answer. Off a step, the only
+ *                possible mistake is a mark on another cell, which `wrong` names.
  * text may hold <b>; everything else is plain text.
  */
 const TUTORIAL_LESSONS = [
@@ -172,6 +177,7 @@ const TUTORIAL_LESSONS = [
     givens: ".........",
     answer: "........S",
     task: "The bottom row and the right column each have two lit 1s. Shade one 1 to fix both.",
+    trap: [5, 7],        // a 1 that fixes only the column or only the row
     wrong: "That still leaves two lit 1s in a line. Try the 1 where the row and column meet.",
     done: "Nice. One shade, two lines fixed.",
   },
@@ -187,6 +193,7 @@ const TUTORIAL_LESSONS = [
     givens: "..S.............",
     answer: "..S..S..........",
     task: "The second row has two 3s. Shade the one that doesn't touch the shaded cell.",
+    trap: [6],           // the 3 right below the given shade
     wrong: "Not quite: those two shaded cells touch side by side. Shade the other 3.",
     done: "Nice. Diagonal neighbours are fine.",
   },
@@ -202,16 +209,21 @@ const TUTORIAL_LESSONS = [
     givens: "....S...........",
     answer: "...SS....S......",
     task: "Fix the two 4s in the top row and the two in the second column, without walling in the corner 1.",
+    trap: [1],           // the 4 beside the corner 1, walling it in
     wrong: "Not quite: the corner 1 needs a lit neighbour to stay connected. Leave the 4 beside it lit.",
     done: "That's all three rules. Every puzzle has one answer, reachable by logic alone.",
   },
 ];
 
+/** The "not quite" line for a mistake the lesson's own line doesn't describe. */
+const TUTORIAL_WRONG_GENERIC = "That cell isn't part of the answer — tap it until it's clear.";
+
 /**
  * Where a lesson stands after a tap. marks: the board's marks (0 unmarked, 1 shaded,
  * 2 circled). step: the lesson-1 step being worked on (ignored for other lessons).
- * Returns { step, solved, wrong } — wrong = a move off the answer (the UI waits a moment
- * before it says "not quite").
+ * Returns { step, solved, wrong, trap } — wrong = a move off the answer (the UI waits a
+ * moment before it says "not quite"); trap = that mistake is the lesson's anticipated one
+ * (see tutorialWrongLine).
  */
 function tutorialProgress(lesson, step, marks) {
   const CODE = { ".": 0, S: 1, O: 2 };
@@ -220,23 +232,36 @@ function tutorialProgress(lesson, step, marks) {
     const s = step || 0;
     if (s >= lesson.steps.length) return { step: s, solved: true, wrong: false };
     if (same(lesson.steps[s].marks)) {
-      return { step: s + 1, solved: s + 1 === lesson.steps.length, wrong: false };
+      return { step: s + 1, solved: s + 1 === lesson.steps.length, wrong: false, trap: false };
     }
     const prev = s === 0 ? lesson.givens : lesson.steps[s - 1].marks;
-    return { step: s, solved: false, wrong: !same(prev) };
+    const off = !same(prev);
+    return { step: s, solved: false, wrong: off, trap: off };
   }
-  let solved = true, wrong = false;
+  let solved = true, wrong = false, trap = true;
+  const traps = lesson.trap || [];
   for (let i = 0; i < lesson.answer.length; i++) {
     const want = lesson.answer[i], m = marks[i];
+    let bad = false;
     if (want === "S") {
       if (m !== 1) solved = false;
-      if (m === 2) wrong = true;
+      if (m === 2) bad = true;
     } else {
-      if (m === 1) { wrong = true; solved = false; }
+      if (m === 1) { bad = true; solved = false; }
       if (want === "O" && m !== 2) solved = false;
     }
+    if (bad) {
+      wrong = true;
+      if (!(m === 1 && traps.indexOf(i) >= 0)) trap = false;
+    }
   }
-  return { step: step || 0, solved: solved && !wrong, wrong: wrong };
+  return { step: step || 0, solved: solved && !wrong, wrong: wrong, trap: wrong && trap };
+}
+
+/** The "not quite" line for a tutorialProgress result: "" when nothing is wrong. */
+function tutorialWrongLine(lesson, r) {
+  if (!r || !r.wrong) return "";
+  return r.trap ? lesson.wrong : TUTORIAL_WRONG_GENERIC;
 }
 
 if (typeof module !== "undefined" && module.exports) {
@@ -244,6 +269,6 @@ if (typeof module !== "undefined" && module.exports) {
     LEVELS_PER_BATCH, SECTION_SIZE, LINGER_MOVES,
     computeStars, mergeResult, isUnlocked, nextPlayable, tierSummary,
     newMistakeTracker, trackMove, flagMistake, migrateSave,
-    TUTORIAL_LESSONS, tutorialProgress,
+    TUTORIAL_LESSONS, TUTORIAL_WRONG_GENERIC, tutorialProgress, tutorialWrongLine,
   };
 }

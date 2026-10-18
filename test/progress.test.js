@@ -167,5 +167,41 @@ if (L2) {
   check("progress: nothing yet is neither", (() => { const z = tp(L2, 0, marksOf(L2.givens)); return !z.wrong && !z.solved; })());
 }
 
+// "Not quite" lines: the lesson's own line only for the anticipated wrong move.
+{
+  const tp = P.tutorialProgress, line = P.tutorialWrongLine, G = P.TUTORIAL_WRONG_GENERIC;
+  const shade = (lesson, cells, circle) => {
+    const m = marksOf(lesson.givens);
+    cells.forEach((i) => { m[i] = 1; });
+    (circle || []).forEach((i) => { m[i] = 2; });
+    return tp(lesson, 0, m);
+  };
+  check("wrong: generic line text", G === "That cell isn't part of the answer — tap it until it's clear.");
+  const [A, B, C, D] = L;
+  let r = tp(A, 1, marksOf(A.steps[0].marks).map((v, i) => (i === 0 ? 1 : v)));
+  check("wrong L1: a stray tap gets the lesson line", r.wrong && r.trap && line(A, r) === A.wrong);
+  r = shade(B, [5]);
+  check("wrong L2: the right-column 1 is the anticipated move", r.wrong && r.trap && line(B, r) === B.wrong);
+  r = shade(B, [7]);
+  check("wrong L2: the bottom-row 1 is too", r.trap && line(B, r) === B.wrong);
+  r = shade(B, [0]);
+  check("wrong L2: the top-left 1 (no repeat) gets the generic line", r.wrong && !r.trap && line(B, r) === G);
+  r = shade(B, [], [8]);
+  check("wrong L2: circling the answer cell gets the generic line", r.wrong && !r.trap && line(B, r) === G);
+  r = shade(C, [6]);
+  check("wrong L3: the touching 3 gets the lesson line", r.wrong && r.trap && line(C, r) === C.wrong);
+  r = shade(C, [0]);
+  check("wrong L3: an unrelated cell gets the generic line", r.wrong && !r.trap && line(C, r) === G);
+  r = shade(D, [1]);
+  check("wrong L4: the 4 beside the corner gets the lesson line", r.wrong && r.trap && line(D, r) === D.wrong);
+  r = shade(D, [1, 3]);
+  check("wrong L4: ...also with the right 4 shaded", r.wrong && r.trap && line(D, r) === D.wrong);
+  r = shade(D, [0]);
+  check("wrong L4: shading the corner 1 gets the generic line", r.wrong && !r.trap && line(D, r) === G);
+  r = shade(D, [1, 15]);
+  check("wrong L4: the trap plus another stray shade gets the generic line", r.wrong && !r.trap && line(D, r) === G);
+  check("not wrong -> no line", line(D, shade(D, [3])) === "");
+}
+
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);
